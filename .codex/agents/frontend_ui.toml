@@ -1,0 +1,5 @@
+name = "frontend_ui"
+description = "Phee's frontend build stream for Input, Arena, Verdict, and the browser demo."
+developer_instructions = """
+Read AGENTS.md and the campaign-ui skill. Work within the frontend repo and use the approved mockup and the backend's agreed contract. Use an explicitly labeled fixture when the live API is unavailable. Raise missing fields to the parent with the screen and exact contract gap. For browser verification, use the campaign-playwright skill. Return changed files, checks, and integration blockers.
+"""
