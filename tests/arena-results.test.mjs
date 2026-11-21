@@ -95,11 +95,13 @@ test('rate, lift, loss and missing-denominator formatting respect the reported u
   assert.equal(attainmentRate({ met_samples: 0, valid_paired_samples: 0 }), null)
 })
 
-test('changing the demo budget updates the paired goal count along with the profit range', async () => {
+test('the demo reports profit and goal attainment against its saved review inputs', async () => {
   const values = { brand: 'Test', discount_pct: '15', total_budget_thb: '6000', unit_price_thb: '120',
     unit_cost_thb: '65', fee_pct: '10', fixed_campaign_spend_thb: '0' }
-  const draft = { values, fields: [], confirmed: [], campaign: exampleCampaign, goals: [], mechanics: [], answers: {} }
+  const draft = { brief: 'Budget test brief', values, fields: [], confirmed: [], campaign: { ...exampleCampaign, name: 'Budget test' }, goals: [], mechanics: [], answers: {} }
   const review = await fixtureApi.context(draft)
+  draft.brief = 'Later draft'
+  draft.campaign.name = 'Another campaign'
   const approval = { context: review.context, original_plan: review.original_plan, included_alternatives: [],
     baseline: review.baseline, scenario_config: review.scenario_config, confirmed_field_ids: [] }
   const submitted = await fixtureApi.simulate(approval, 'test-small-budget')
@@ -110,6 +112,11 @@ test('changing the demo budget updates the paired goal count along with the prof
     state = await fixtureApi.run(submitted.run_id)
   }
   assert.ok(state.report)
+  assert.equal(state.report.inputs.brief, 'Budget test brief')
+  assert.equal(state.report.inputs.campaign.name, 'Budget test')
+  assert.equal(state.report.inputs.original_plan.total_budget_thb, 6000)
+  assert.equal(state.report.inputs.source, 'submission')
+  assert.equal(report.inputs.source, 'example')
   const small = state.report.results.find(row => row.plan_id === review.original_plan.plan_id && row.scenario_id === 'S1')
   assert.ok(small.metrics.incremental_profit_thb.p90 < state.report.goal_thb)
   assert.deepEqual(small.goal_attainment, { met_samples: 0, valid_paired_samples: 20 })

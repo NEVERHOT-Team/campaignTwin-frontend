@@ -253,7 +253,7 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
     }
     setBusy('review'); setApproved(false); setCandidateEdits({})
     try {
-      const context = await api.context(draft, contextRef.current)
+      const context = await api.context({ ...draft, brief }, contextRef.current)
       contextRef.current = context.context; setReview(context)
       const open = context.open_questions ?? []
       setQuestions(open)

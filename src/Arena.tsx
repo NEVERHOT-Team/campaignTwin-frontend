@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArenaViews, IsometricMarket } from './ArenaViews'
 import { WorkflowMap } from './WorkflowMap'
+import { replayWorkflowEvidence } from './replay-workflow'
 import { ScenarioChoices } from './ScenarioChoices'
 import { PixelArena } from './PixelArena'
 import { ShopperPicker, shopperName } from './ShopperPicker'
@@ -196,6 +197,8 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
           twoD={<div className="ra-stage"><PixelArena {...mapProps}/></div>}
           isometric={<div className="ra-stage ra-isometric"><IsometricMarket {...mapProps}/></div>}
           flow={<WorkflowMap mode="demo" plan={choice?.label} scenario={scenarioInfo?.label ?? scenario} comparisons={comparisons}
+            evidence={view === 'flow' ? replayWorkflowEvidence({ report, result, baselineDay, frame: current, previous: days?.[index - 1],
+              plan: choice, scenario: scenarioInfo, selected, day, phase, lastMove }) : undefined}
             selectablePlans={availablePlans.map(p => p.label)} seedCount={result?.seeds}
             onChoosePlan={label => {
               const plan = availablePlans.find(p => p.label === label)

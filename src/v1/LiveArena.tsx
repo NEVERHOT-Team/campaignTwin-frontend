@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { marketBackdrop, marketHeight, marketWidth } from '../pixel-market-art'
 import { ArenaViews, IsometricMarket } from '../ArenaViews'
-import { WorkflowMap } from '../WorkflowMap'
+import { WorkflowMap, type WorkflowEvidence } from '../WorkflowMap'
 import { ScenarioChoices } from '../ScenarioChoices'
 import { humanize } from './planner'
 import type { Report, Review } from './client'
@@ -10,6 +10,7 @@ import '../arena-page.css'
 import './live-arena.css'
 
 type Metric = Report['scenario_results'][number]['metrics'][number]
+type Scene = Report['scenario_results'][number]
 type PlanResult = NonNullable<Report['plan_results']>[number]
 type Props = { report: Report; review?: Review | null; selection: RunSelection; onVerdict: () => void; onOpenDemo?: () => void }
 
@@ -53,13 +54,116 @@ function IllustratedMarket() {
     <canvas ref={canvas} width={marketWidth} height={marketHeight} role="img" aria-label="Illustration of a four-stall market square"/>
   </div>
 }
-function Subsidy({ offer }: { offer:PlanResult['input']['offer'] | undefined }) {
-  if (offer === null) return <>No offer</>
-  if (!offer?.discount.value || !offer.discount.unit) return <>Unresolved</>
-  return <>{offer.discount.unit === 'pct' ? numbers.format(offer.discount.value) + '%' : baht.format(offer.discount.value)} {offer.discount.kind === 'voucher' ? 'voucher' : 'off'}</>
+function offerText(offer: PlanResult['input']['offer'] | undefined) {
+  if (offer === null) return 'No offer'
+  if (offer?.discount.value == null || !offer.discount.unit) return 'Unresolved'
+  const amount = offer.discount.unit === 'pct' ? numbers.format(offer.discount.value) + '%' : baht.format(offer.discount.value)
+  return amount + (offer.discount.kind === 'voucher' ? ' voucher' : ' off')
+}
+
+function stageFacts(rows: [string, string | undefined][]) {
+  return rows.flatMap(([label,value]) => value === undefined ? [] : [{ label,value }])
+}
+
+function liveWorkflow(report: Report, review: Review | undefined, plan: PlanResult | undefined, scene: Scene | undefined, comparisons: PlanResult[], households: number | undefined): WorkflowEvidence {
+  const input = plan?.input
+  const selected = plan ? planLabels[plan.role] : 'Reported campaign'
+  const original = report.plan_results?.find(p => p.role === 'original')
+  const originalScope = report.scenario_results.find(s => s.scenario === scene?.scenario) ?? original?.scenario_results.find(s => s.scenario === scene?.scenario)
+  const originalPolicy = original?.input.evaluation ?? review?.evaluation
+  const target = originalPolicy?.goal_target
+  const origins = { planner:'Planner entry', planner_confirmed_extraction:'Confirmed by planner', data:'Backend data', default:'Policy default' }
+  function reviewed(field: string, value: string | undefined) {
+    if (!value) return undefined
+    const source = review?.fact_origins['/facts/' + field]
+    return source ? value + ' · ' + origins[source] : value
+  }
+  function outcome(scope: Scene | undefined, id: Metric['metric'], quantile: 'p10'|'p50'|'p90' = 'p50') {
+    const item = scope?.metrics.find(m => m.metric === id)
+    return item?.unavailable_reason ? 'Unavailable · ' + humanize(item.unavailable_reason) : metricValue(item,quantile)
+  }
+  const product = original?.input.product ?? review?.resolved_product
+  const productLabel = product && product.label + ' · ' + product.pack_label
+  return {
+    brief: {
+      summary: review ? 'Planner intent saved in the approved review.' : 'The original brief is unavailable in this report.',
+      stamp: review?.facts.objective && humanize(review.facts.objective),
+      facts: stageFacts([
+        ['Product requested',reviewed('product_hint',review?.facts.product_hint)],
+        ['Pack requested',reviewed('pack_hint',review?.facts.pack_hint)],
+        ['Audience',reviewed('audience_hint',review?.facts.audience_hint)],
+        ['Objective',reviewed('objective',review?.facts.objective && humanize(review.facts.objective))],
+        ['Requested budget',reviewed('budget_thb',review?.facts.budget_thb != null ? baht.format(review.facts.budget_thb) : undefined)],
+      ]),
+    },
+    review: {
+      summary: 'This run used approved revision ' + report.revision + '.',
+      stamp: 'Revision ' + report.revision,
+      facts: stageFacts([
+        ['Verified listing',productLabel || undefined],
+        ['Channel',reviewed('channel',product?.channel && humanize(product.channel))],
+        ['Approved offer',original ? offerText(original.input.offer) : review?.resolved_offer ? offerText(review.resolved_offer) : undefined],
+        ['Eligibility',reviewed('offer/eligibility',review?.facts.offer?.eligibility && humanize(review.facts.offer.eligibility))],
+        ['Campaign window',original?.input.campaign_window ? interval(original.input.campaign_window) : undefined],
+        ['Policy version',report.data_versions.evaluation_policy],
+      ]),
+    },
+    setup: {
+      summary: plan?.role === 'baseline' ? 'The paired no-campaign baseline supplies the comparison for each promotion.'
+        : input ? selected + ' was evaluated against the paired no-campaign baseline.' : 'The report identifies a paired no-campaign comparison. Per-plan inputs are unavailable.',
+      stamp: plan && selected,
+      facts: stageFacts([
+        ['Selected offer',input && offerText(input.offer)],
+        ['Subsidy cap',input && baht.format(input.subsidy_budget)],
+        [plan?.role === 'baseline' ? 'Comparison dates' : 'Active dates',input && interval(input.campaign_window)],
+        ['Eligible orders',input?.offer?.eligible_order_scope],
+        ['Funding',input?.offer && humanize(input.offer.funder) || undefined],
+        ['Compared in ' + (scene?.scenario ?? 'this scenario'),comparisons.length ? comparisons.map(p => planLabels[p.role]).join(' · ') : undefined],
+      ]),
+      notes: input?.changes.map(change => change.reason),
+    },
+    simulation: {
+      summary: scene ? selected + ' · ' + scene.scenario + ' · Results across paired simulations.' : 'This plan has no scenario results in the report.',
+      stamp: input?.seeds.length ? input.seeds.length + ' paired seeds' : scene?.scenario,
+      facts: stageFacts([
+        ['Evaluation window',interval(report.measurement_window)],
+        ['Eligible households',households == null ? undefined : numbers.format(households)],
+        ['Paired seed IDs',input?.seeds.length ? input.seeds.join(', ') : undefined],
+        ['Median incremental profit',scene && outcome(scene,'incremental_profit')],
+        ['P10 to P90 profit',scene?.metrics.some(m => m.metric === 'incremental_profit' && m.status === 'available')
+          ? outcome(scene,'incremental_profit','p10') + ' to ' + outcome(scene,'incremental_profit','p90') : undefined],
+        ['Loss probability',scene && outcome(scene,'probability_loss')],
+        ['Median subsidy leakage',scene && outcome(scene,'subsidy_leakage')],
+        ['Median incremental ROAS',scene && outcome(scene,'incremental_roas')],
+      ]),
+    },
+    evidence: {
+      summary: originalScope ? 'Outcomes for your original plan under ' + originalScope.scenario + ', alongside its approved limits.' : 'Original-plan outcomes are unavailable for this selected scenario.',
+      stamp: originalScope?.scenario,
+      facts: stageFacts([
+        ['Minimum target',target ? humanize(target.metric) + ' ≥ ' + valueInUnit(target.minimum,target.unit) : undefined],
+        ['Original median profit',originalScope && outcome(originalScope,'incremental_profit')],
+        ['Maximum loss probability',originalPolicy && percentage.format(originalPolicy.max_loss_probability) || undefined],
+        ['Original loss probability',originalScope && outcome(originalScope,'probability_loss')],
+        ['Original median subsidy leakage',originalScope && outcome(originalScope,'subsidy_leakage')],
+        ['Incremental buyers',originalScope && outcome(originalScope,'incremental_new_buyers')],
+      ]),
+      notes: ['Open Verdict for the recorded decision checks and historical comparison.'],
+    },
+    decision: {
+      summary: report.decision.explanation,
+      stamp: humanize(report.decision.status),
+      facts: [
+        {label:'Applies to', value:'Your original plan'},
+        {label:'Decision', value:humanize(report.decision.status)},
+        {label:'Recorded reason', value:humanize(report.decision.reason_code)},
+      ],
+    },
+  }
 }
 
 export default function LiveArena({ report, review, selection, onVerdict, onOpenDemo }: Props) {
+  const [view,setView] = useState<'isometric' | '2d' | 'flow'>('isometric')
   const { plans, plan, results, scene, choosePlan } = resolveRunSelection(report,selection)
   const metric = (id: Metric['metric']) => scene?.metrics.find(m => m.metric === id)
   const buyers = metric('incremental_new_buyers')
@@ -118,7 +222,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
           {product && <p className="live-market-product">{product.label} · {product.pack_label}</p>}
           <dl className="ra-facts">
             {product && <div><dt>Channel</dt><dd>{humanize(product.channel)}</dd></div>}
-            {offer !== undefined && <div><dt>Offer</dt><dd>{!input && offer === null ? 'Unresolved' : <Subsidy offer={offer}/>}</dd></div>}
+            {offer !== undefined && <div><dt>Offer</dt><dd>{!input && offer === null ? 'Unresolved' : offerText(offer)}</dd></div>}
             {budget != null && <div><dt>Subsidy budget</dt><dd>{baht.format(budget)}</dd></div>}
             {window && <div><dt>Active dates</dt><dd>{interval(window)}</dd></div>}
           </dl>
@@ -138,11 +242,12 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
       </aside>
 
       <section className="ra-market" aria-labelledby="live-market-square">
-        <div className="ra-stage-header"><div><h2 id="live-market-square">Market square</h2>
+        <div className="ra-stage-header"><div><h2 id="live-market-square">{view === 'flow' ? 'Simulation workflow' : 'Market square'}</h2>
           <p>{sourceLabel}{plan && ' · ' + planLabels[plan.role]}</p></div></div>
-        <ArenaViews twoD={<figure><IllustratedMarket/>{floorCaption}</figure>}
+        <ArenaViews onViewChange={setView} twoD={<figure><IllustratedMarket/>{floorCaption}</figure>}
           isometric={<figure><IsometricMarket/>{floorCaption}</figure>}
           flow={<WorkflowMap mode="live" plan={plan && planLabels[plan.role]} scenario={scene?.scenario}
+            evidence={liveWorkflow(report,matchedReview,plan,scene,comparedPlans,eligibleSegments.length ? eligibleHouseholds : undefined)}
             revision={report.revision} comparisons={comparedLabels} decision={humanize(report.decision.status)}
             seedCount={input?.seeds.length} selectablePlans={comparedLabels} onChoosePlan={label => {
               const choice = comparedPlans.find(p => planLabels[p.role] === label)

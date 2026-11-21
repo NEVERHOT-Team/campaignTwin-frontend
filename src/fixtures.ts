@@ -1,5 +1,5 @@
 import { exampleCampaign, fieldIssues } from './campaign'
-import { type Agent, type Backtest, type Brand, type CampaignApi, type Candidate, type Draft, type Field, type FieldKey, type Plan, type Range, type Report, type ReviewContext, type Run, type Scenario, type Trace, brandLabels, emptyValues, fieldKeys } from './model'
+import { type Agent, type Backtest, type Brand, type CampaignApi, type Candidate, type Draft, type Field, type FieldKey, type Plan, type Range, type Report, type ReviewContext, type Run, type Scenario, type Trace, brandLabels, emptyValues, fieldKeys, sampleBrief } from './model'
 
 const scenarioList: Scenario[] = [
   { scenario_id: 'S1', label: 'Quiet market', description: 'Rivals keep their usual pricing.' },
@@ -13,7 +13,7 @@ const pendingHistory: Backtest = {
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 const range = (p50: number, spread: number): Range => ({ p10: p50 - spread, p50, p90: p50 + spread })
 export const demoEconomics = { unit_price_thb: '120', unit_cost_thb: '65', fee_pct: '10', fixed_campaign_spend_thb: '0' }
-const mockDraft: Draft = { values: { ...emptyValues, brand: 'Crunchy Co.', discount_pct: '15', total_budget_thb: '20000', ...demoEconomics }, fields: [], confirmed: [], campaign: exampleCampaign, goals: [], mechanics: [], answers: {} }
+const mockDraft: Draft = { brief: sampleBrief, values: { ...emptyValues, brand: 'Crunchy Co.', discount_pct: '15', total_budget_thb: '20000', ...demoEconomics }, fields: [], confirmed: [], campaign: exampleCampaign, goals: [], mechanics: [], answers: {} }
 const contexts = new Map<string, { review: ReviewContext; draft: Draft }>()
 const candidates = new Map<string, Candidate>()
 const runs = new Map<string, { report: Report; start: number }>()
@@ -86,7 +86,7 @@ function fixtureProfit(median: number, spread: number, factor: number, goal: num
   }
 }
 
-function reportOf(review: ReviewContext, candidate?: Candidate): Report {
+function reportOf(review: ReviewContext, draft: Draft, source: 'example' | 'submission', candidate?: Candidate): Report {
   const original = review.original_plan
   const plans: Report['plans'] = [
     { plan_id: original.plan_id, label: original.label, role: 'original', discount_pct: original.discount_pct },
@@ -97,6 +97,7 @@ function reportOf(review: ReviewContext, candidate?: Candidate): Report {
   const goal = 5000
   return {
     plans, scenarios: scenarioList,
+    inputs: structuredClone({ source, brief: draft.brief?.trim(), campaign: draft.campaign, original_plan: original }),
     results: scenarioList.flatMap((s, j) => plans.map(plan => {
       const alternate = plan.role === 'alternative'
       const baseline = plan.role === 'baseline'
@@ -149,7 +150,7 @@ function matchFields(text: string): Field[] {
 
 const sampleReview = reviewOf(mockDraft, 'sample', 1)
 let sampleReport: Report | undefined
-const replayReport = () => (sampleReport ??= reportOf(sampleReview, candidateOf(sampleReview, mockDraft)))
+const replayReport = () => (sampleReport ??= reportOf(sampleReview, mockDraft, 'example', candidateOf(sampleReview, mockDraft)))
 function traceFrom(report: Report, id: string, day: number, scenario: string, planId: string): Trace {
   const row = report.results.find(r => r.scenario_id === scenario && r.plan_id === planId)
   const agent = row?.daily.find(d => d.day === day)?.agents?.find(a => a.shopper_id === id)
@@ -191,7 +192,7 @@ export const fixtureApi: CampaignApi = {
   async context(draft, previous) {
     await wait(200)
     const review = reviewOf(draft, previous?.id ?? crypto.randomUUID(), (previous?.revision ?? 0) + 1)
-    contexts.set(key(review.context), { review, draft })
+    contexts.set(key(review.context), structuredClone({ review, draft }))
     return review
   },
   async optimize(review) {
@@ -222,7 +223,7 @@ export const fixtureApi: CampaignApi = {
     const candidate = ref && candidates.get(ref.plan_id + ':' + ref.revision)
     if (ref && (!candidate || candidate.issues.length)) throw new Error('Review the Strategist plan before running.')
     const run_id = crypto.randomUUID()
-    runs.set(run_id, { report: reportOf(context.review, candidate), start: Date.now() })
+    runs.set(run_id, { report: reportOf(context.review, context.draft, 'submission', candidate), start: Date.now() })
     submissions.set(submissionId, { run_id, approval: serialized })
     return { run_id, status: 'queued' }
   },

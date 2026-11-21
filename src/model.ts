@@ -2,7 +2,7 @@ import type { Question } from './campaign'
 export type FieldKey = 'brand' | 'discount_pct' | 'total_budget_thb' | 'unit_price_thb' | 'unit_cost_thb' | 'fee_pct' | 'fixed_campaign_spend_thb'
 export type Values = { brand: string } & Record<Exclude<FieldKey, 'brand'>, string>
 export type Field = { field_id: FieldKey; value: string | number | null; origin: 'user' | 'extracted' | 'proposed' | 'unavailable'; source_quote?: string; confirmation?: 'pending' | 'blocked' }
-export type Draft = { values: Values; fields: Field[]; confirmed: FieldKey[]; campaign: Record<string, string>; goals: Record<string, string>[]; mechanics: Record<string, string>[]; answers: Record<string, string> }
+export type Draft = { brief?: string; values: Values; fields: Field[]; confirmed: FieldKey[]; campaign: Record<string, string>; goals: Record<string, string>[]; mechanics: Record<string, string>[]; answers: Record<string, string> }
 export type Ref = { id: string; revision: number }
 export type Plan = {
   plan_id: string; revision: number; label: string; brand: string; discount_pct: number
@@ -46,6 +46,9 @@ export type Backtest = {
   metrics: { label: string; unit: string; observed: number; simulated: number; naive: number }[]
 }
 export type Report = {
+  inputs?: {
+    source: 'example' | 'submission'; brief?: string; campaign: Record<string, string>; original_plan: Plan
+  }
   plans: { plan_id: string; label: string; role: 'original' | 'alternative' | 'baseline'; discount_pct?: number }[]
   scenarios: Scenario[]; results: Result[]; assumptions: string[]; candidate?: Candidate
   recommendation: { plan_id: string | null; summary: string } | null
