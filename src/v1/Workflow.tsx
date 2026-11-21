@@ -19,7 +19,7 @@ type Saved = { reviewId: string; turns: Turn[]; receipt: Approval | null; run: R
 const firstKeys = ['product_hint','pack_hint','product_choice_id','channel','audience_hint','objective','budget_thb','start_date','end_date']
 const offerKeys = ['offer.kind','offer.value','offer.unit']
 const restrictionKeys = ['offer.min_spend_thb','offer.cap_per_user','offer.eligibility']
-const demoBrief = 'Use the synthetic demo toilet tissue for all buyers. Target incremental profit with a 1000 THB budget and a 10 THB voucher from 2026-11-07 until 2026-12-05.'
+const demoBrief = 'Rehearse Cellox toilet tissue on Shopee for all buyers. Target incremental profit with a 500000 THB budget and 40% off from 2026-11-07 until 2026-12-05.'
 const fieldKey = (pointer:string) => pointer.startsWith('/facts/') ? pointer.slice(7).replaceAll('/','.') : ''
 const valueLabel = (value:unknown):string => typeof value === 'object' && value !== null ? Object.entries(value).map(([k,v]) => humanize(k) + ' ' + String(v)).join(' · ') : String(value)
 function loadSaved(key:string):Saved|null {
@@ -28,15 +28,11 @@ function loadSaved(key:string):Saved|null {
     return typeof data?.reviewId === 'string' && Array.isArray(data.turns) ? data : null
   } catch { return null }
 }
-function summary(r:Review) {
-  return r.questions[0]?.prompt ?? (r.status === 'ready_for_approval' ? 'Your campaign is ready for approval.' : r.blockers[0]?.message)
-}
-function addPendingQuestion(turns:Turn[], r:Review|null) {
-  const prompt = r?.questions[0]?.prompt ?? r?.blockers[0]?.message
-  return prompt ? [...turns,{speaker:'assistant' as const,text:prompt}] : turns
+function activeQuestion(review:Review) {
+  return review.questions.find(question => question.blocking) ?? review.questions[0]
 }
 
-export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?:boolean) => void; onSeller?: () => void }) {
+export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?:boolean) => void; onOpenV2?: () => void }) {
   const [api] = useState(() => createV1Client(import.meta.env.VITE_API_BASE_URL))
   const sessionKey = 'campaigntwin-v1-session/' + api.origin
   const [saved] = useState(() => loadSaved(sessionKey))
@@ -60,6 +56,7 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
   const [busy,setBusy] = useState<'send'|'save'|'submit'|null>(null)
   const [error,setError] = useState('')
   const [notice,setNotice] = useState('')
+  const [repeatedField,setRepeatedField] = useState<string>()
   const [pending,setPending] = useState<Pending|null>(null)
   const submitting = useRef(false)
   const composer = useRef<HTMLTextAreaElement>(null)
@@ -68,6 +65,7 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
   const edits = changes(review?.facts ?? {},fields,review?.fact_origins['/facts/offer/eligibility'] === 'default')
   const dirty = Object.keys(edits).length > 0 || confirmed.length > 0
   const locked = Boolean(busy || restoring)
+  const question = review && activeQuestion(review)
   const readyForApproval = review?.status === 'ready_for_approval' && !review.blockers.length && !review.questions.some(q => q.blocking)
 
   useEffect(() => {
@@ -133,7 +131,7 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
 
   function accept(next:Review) {
     setReview(next); setForm(toForm(next.facts)); setConfirmed([]); setConsent(false); setReceipt(null); setPending(null)
-    setSampleNotice('')
+    setSampleNotice(''); setRepeatedField(undefined)
   }
   function edit(key:string,value:string) {
     setForm(f => ({...f,[key]:value})); setConsent(false); setReceipt(null); setError(''); setNotice('')
@@ -143,8 +141,7 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
   function fillSample() {
     if (locked || consent || receipt) return
     const confirmedFields = new Set(review?.candidates.filter(c=>confirmed.includes(c.candidate_id)).map(c=>fieldKey(c.field).split('.')[0]))
-    const preferred = draftText.trim()===demoBrief ? 'demo-tissue-12-shopee' : undefined
-    const additions = Object.entries(fillV1Sample(form,review,preferred)).filter(([key,value])=>form[key]!==value && !confirmedFields.has(key.split('.')[0]))
+    const additions = Object.entries(fillV1Sample(form,review)).filter(([key,value])=>form[key]!==value && !confirmedFields.has(key.split('.')[0]))
     if (!additions.length) {setSampleNotice('All applicable fields already have values.');return}
     setForm({...form,...Object.fromEntries(additions)})
     setSampleNotice('Filled empty fields with a local example. Review the details before saving.')
@@ -168,7 +165,7 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
     if (problem.code === 'incomplete_review' || problem.code === 'approval_stale') { setReceipt(null); setConsent(false) }
     setError([message,...(problem.issues ?? problem.blockers ?? []).map(v => v.field+' · '+v.message)].join('\n'))
   }
-  async function write(kind:'send'|'save', e?:FormEvent) {
+  async function write(kind:'send'|'save', e?:FormEvent, confirmations=confirmed) {
     e?.preventDefault()
     if (locked) return
     const text = draftText.trim()
@@ -182,11 +179,20 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
       let next:Review
       if (!review) next = await api.create(text,fields)
       else if (kind === 'send') next = await api.answer(review,text)
-      else next = await api.revise(review,edits,confirmed)
+      else next = await api.revise(review,edits,confirmations)
       const conversational = kind === 'send' || (!review && Boolean(text))
-      setTurns(t => [...addPendingQuestion(t,review), ...(conversational ? [{speaker:'user' as const,text}] : [])])
+      const nextQuestion = activeQuestion(next)
+      const waitingOnSameField = conversational && question && question.field === nextQuestion?.field
+      if (conversational) {
+        setTurns(t => [
+          ...t,
+          ...(question && !waitingOnSameField ? [{speaker:'assistant' as const,text:question.prompt}] : []),
+          {speaker:'user' as const,text},
+        ])
+      }
       if (conversational) setDraftText('')
       accept(next)
+      if (waitingOnSameField) setRepeatedField(question.field)
       if (kind === 'send' && review && dirty) {
         // Answer is its own revision. Preserve unrelated unfinished form edits and rebind only still-offered quotes.
         const savedFields = toForm(review.facts)
@@ -226,7 +232,7 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
     try { sessionStorage.removeItem(sessionKey) } catch { /* Storage is optional. */ }
     setRun(null); setState(null); setReport(null); setViewVerdict(false); setReview(null); setReceipt(null); setConsent(false); setConfirmed([])
     setDraftText(''); setForm({}); setTurns([]); setError(''); setNotice(''); setPollError(''); setPending(null)
-    setSampleNotice('')
+    setSampleNotice(''); setRepeatedField(undefined)
     setAbandoned(true)
   }
   const [abandoned,setAbandoned] = useState(false)
@@ -237,6 +243,20 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
     setConsent(false); setReceipt(null)
   }
   const productChoices = review?.supported_product_choices ?? (sampleNotice ? sampleProducts : [])
+  const questionKey = fieldKey(question?.field ?? '')
+  const promptControl = controls.find(c => c.key === (questionKey === 'offer' ? 'offer.kind' : questionKey))
+  const hasQuestionSuggestion = !!review?.candidates.some(c => c.field === question?.field)
+  const suggestions = review?.candidates ?? []
+  const canConfirmAll = suggestions.length > 1 && new Set(suggestions.map(c => c.field)).size === suggestions.length
+    && suggestions.every(c => !(fieldKey(c.field).split('.')[0] in edits))
+  function focusPromptField() {
+    if (!promptControl) return
+    const element = document.getElementById('v1-'+promptControl.key)
+    if (!element) return
+    const disclosure = element.closest('details')
+    if (disclosure) disclosure.open = true
+    element.focus()
+  }
   function field(key:string) {
     const c = controls.find(c => c.key === key)!
     if (key === 'product_choice_id' && !productChoices.length && !form[key]) return null
@@ -272,7 +292,10 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
   }, [phase])
   return <>
     <a className="skip-link" href="#planner-workspace">Skip to workspace</a>
-    <WorkspaceHeader status="API workspace" onHome={onSeller} action={onOpenDemo && <button type="button" onClick={()=>onOpenDemo()}>Demo arena</button>}><span className="v1-current-step">{phase}</span></WorkspaceHeader>
+    <WorkspaceHeader status="API workspace" action={<>
+      {onOpenDemo && <button type="button" onClick={()=>onOpenDemo()}>Demo arena</button>}
+      {onOpenV2 && <button type="button" onClick={onOpenV2}>Debug v2</button>}
+    </>}><span className="v1-current-step">{phase}</span></WorkspaceHeader>
     <main className="workspace v1-workspace" id="planner-workspace">
       {restoring ? <p className="v1-loading" role="status">Reopening campaign…</p>
         : failedRestore ? <section className="v1-loading"><h1>Reopen campaign</h1><p role="alert">{error}</p><button className="intake-primary" onClick={() => setRestoreAttempt(n => n+1)}>Try again</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></section>
@@ -294,15 +317,22 @@ export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?
               {!review ? <div className="intake-empty"><h2>What are you planning?</h2><p>Start with a brief or the campaign details you know.</p></div>
                 : <div className="intake-transcript v1-transcript" ref={transcript} aria-label="Campaign conversation">
                   {turns.map((turn,i) => <div key={i} className="intake-turn" data-speaker={turn.speaker}><small>{turn.speaker === 'user' ? 'You' : 'CampaignTwin'}</small><p>{turn.text}</p></div>)}
-                  <div className="intake-turn" data-speaker="assistant" aria-live="polite"><small>CampaignTwin · Revision {review.revision}</small><p>{summary(review)}</p></div>
+                  <div className="intake-turn" data-speaker="assistant" aria-live="polite"><small>CampaignTwin · Revision {review.revision}</small><p>{readyForApproval ? 'Your campaign is ready for approval.'
+                    : hasQuestionSuggestion ? 'Confirm the suggested value below or enter the correct value in Campaign details.'
+                    : question?.prompt ?? review.blockers[0]?.message}</p>
+                    {repeatedField === question?.field && repeatedField && !hasQuestionSuggestion && <p>This field still needs a value. You can enter it directly in Campaign details.</p>}
+                    {!readyForApproval && promptControl && (!hasQuestionSuggestion || repeatedField) && <button type="button" className="intake-link" disabled={locked} onClick={focusPromptField}>Edit {promptControl.label}</button>}</div>
                   {review.questions.length > 1 && <details className="v1-evidence v1-questions"><summary>{review.questions.length-1} more {review.questions.length === 2 ? 'question' : 'questions'}</summary>
-                    <ul>{review.questions.slice(1).map((q,i) => <li key={q.field+i}>{q.prompt}</li>)}</ul></details>}
+                    <ul>{review.questions.filter(item => item !== question).map((q,i) => <li key={q.field+i}>{q.prompt}</li>)}</ul></details>}
                   {review.candidates.length > 0 && <section className="v1-suggestions" aria-label="Suggested values">
                     <h2>Check the suggested values</h2>
                     {review.candidates.map(c => <label className="v1-candidate" key={c.candidate_id}><input type="checkbox" disabled={locked || fieldKey(c.field).split('.')[0] in edits} checked={confirmed.includes(c.candidate_id)} onChange={() => selectCandidate(c)}/>
                       <span>{controls.find(control => control.key === fieldKey(c.field))?.label ?? humanize(fieldKey(c.field))} · {valueLabel(c.value)}<small>“{c.brief_quote}”</small></span>
                     </label>)}
-                    <button className="intake-secondary" disabled={locked || !confirmed.length} onClick={() => write('save')}>Confirm selected{confirmed.length ? ` (${confirmed.length})` : ''}</button>
+                    <button type="button" className="intake-secondary" disabled={locked || (!confirmed.length && !canConfirmAll)}
+                      onClick={() => write('save',undefined,confirmed.length ? confirmed : suggestions.map(c => c.candidate_id))}>
+                      {confirmed.length ? `Confirm selected (${confirmed.length})` : canConfirmAll ? 'Confirm all suggested values' : 'Confirm selected'}
+                    </button>
                   </section>}
                   {readyForApproval && <ReviewEvidence review={review} summary={`Review revision ${review.revision} and its assumptions`}/>}
                 </div>}

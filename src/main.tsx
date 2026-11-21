@@ -12,7 +12,7 @@ type Mode = 'seller' | 'v1' | 'demo'
 function currentMode():Mode {
   const value = new URLSearchParams(location.search).get('mode')
   if (isStandalone || value === 'demo') return 'demo'
-  return value === 'v1' ? 'v1' : 'seller'
+  return value === 'seller' ? 'seller' : 'v1'
 }
 
 function Studio() {
@@ -35,10 +35,10 @@ function Studio() {
   function navigate(next:Mode, play=false) {
     const url=new URL(location.href)
     for (const key of ['mode','view','play','from']) url.searchParams.delete(key)
-    if (next!=='seller') url.searchParams.set('mode',next)
+    if (next!=='v1') url.searchParams.set('mode',next)
     if (next==='demo') {
       url.searchParams.set('view','arena')
-      if (mode==='v1') url.searchParams.set('from','v1')
+      if (mode==='seller') url.searchParams.set('from','seller')
       if (play) url.searchParams.set('play','1')
       setArenaVisit(n=>n+1)
     }
@@ -52,11 +52,11 @@ function Studio() {
       <SellerWorkflow onOpenArena={()=>navigate('v1')} onOpenDemo={()=>navigate('demo')}/>
     </Suspense></div>}
     {visited.has('v1') && <div hidden={mode!=='v1'}><Suspense fallback={<p className="studio-loading" role="status">Opening Arena planner…</p>}>
-      <ArenaWorkflow onSeller={()=>navigate('seller')} onOpenDemo={play=>navigate('demo',play)}/>
+      <ArenaWorkflow onOpenV2={()=>navigate('seller')} onOpenDemo={play=>navigate('demo',play)}/>
     </Suspense></div>}
     {visited.has('demo') && <div hidden={mode!=='demo'}><Suspense fallback={<p className="studio-loading" role="status">Opening demo…</p>}>
       <DemoApp active={mode==='demo'} arenaVisit={arenaVisit} playVisit={query.get('play')==='1' ? arenaVisit : 0}
-        onOpenLive={isStandalone ? undefined : ()=>navigate(query.get('from')==='v1'?'v1':'seller')}/>
+        onOpenLive={isStandalone ? undefined : ()=>navigate(query.get('from')==='seller'?'seller':'v1')}/>
     </Suspense></div>}
   </>
 }

@@ -1,6 +1,6 @@
 # Deploy CampaignTwin
 
-The Vercel frontend calls a separate FastAPI service on Render. A configured build opens the seller planner by default. The browser-only demo is also available at `/?mode=demo`.
+The Vercel frontend calls a separate FastAPI service on Render. A configured build opens the v1 planner by default. The browser-only demo is also available at `/?mode=demo`.
 
 ## 1. Publish the frontend on Vercel
 
@@ -12,7 +12,7 @@ The Vercel frontend calls a separate FastAPI service on Render. A configured bui
 
 ## 2. Get an HTTPS API origin
 
-The team’s Render origin is `https://campaigntwin-backend.onrender.com`. For an existing service, check `GET /api/v2`. A successful response includes the seller API version and schema URL. If the v1 health check succeeds and v2 returns 404, enable the combined entry point below. A Docker deployment needs the same entry point in its container start command.
+The team’s Render origin is `https://campaigntwin-backend.onrender.com`. Verify `GET /api/health` and the v1 review routes in `/openapi.json`.
 
 Vercel can import the backend repository as a second project and run FastAPI. That path needs external PostgreSQL and a deployable Python function bundle. This backend includes pandas, PyArrow and scikit-learn, and its default JSON store writes to the local filesystem. Run a function build and verify persistence across deployments before choosing that host. The frontend always connects through the same public API origin regardless of which service hosts FastAPI. [FastAPI on Vercel](https://vercel.com/docs/frameworks/backend/fastapi) · [Function limits](https://vercel.com/docs/functions/limitations)
 
@@ -22,16 +22,15 @@ For a new service, one supported layout is a **Render Python web service** for t
 
    ```sh
    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/init.sql
-   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/seller_v2.sql
    ```
 
-   These scripts create the v1 workspace and the v2 seller storage for reviews, approvals and runs.
-2. Create **New → Web Service** in Render. Connect **NEVERHOT-Team/campaignTwin-backend**, select **dev** (or a release containing the combined v2 app), and use the repository root. Set the language to **Python 3**, select a supported Python 3.11+ patch, and enter these settings. [Render Python version configuration](https://render.com/docs/python-version)
+   The script creates the v1 workspace for reviews, approvals and runs.
+2. Create **New → Web Service** in Render. Connect **NEVERHOT-Team/campaignTwin-backend**, select **dev** (or a release containing the v1 routes), and use the repository root. Set the language to **Python 3**, select a supported Python 3.11+ patch, and enter these settings. [Render Python version configuration](https://render.com/docs/python-version)
 
    | Setting | Value |
    | --- | --- |
    | Build command | `python -m pip install -e .` |
-   | Start command | `python -m uvicorn api.v2.app:app --host 0.0.0.0 --port "$PORT"` |
+   | Start command | `python -m uvicorn main:app --host 0.0.0.0 --port "$PORT"` |
    | Health check path | `/api/health` |
    | `DB_MODE` | `postgres` |
    | `DATABASE_URL` | Database's **internal connection URL** |
@@ -41,7 +40,6 @@ For a new service, one supported layout is a **Render Python web service** for t
 
    ```sh
    curl -fsS "$API_ORIGIN/api/health"
-   curl -fsS "$API_ORIGIN/api/v2"
    curl -fsS "$API_ORIGIN/openapi.json" | python -c 'import json, sys; p = json.load(sys.stdin)["paths"]; assert "post" in p["/api/v1/campaign-reviews"]; assert "get" in p["/api/v1/runs/{run_id}/report"]; print("Planner and report routes present")'
    ```
 
@@ -50,12 +48,12 @@ For a new service, one supported layout is a **Render Python web service** for t
 1. In Vercel **Project Settings → Environment Variables**, add `VITE_API_BASE_URL`. Paste the public API origin, including `https://`, with no trailing path such as `/api` or `/api/v1`. Select **Production** and any **Preview** environments that should call it. Leave it unset for previews where you want the browser demo. Vite embeds this value in the browser bundle. [Vercel environment variables](https://vercel.com/docs/environment-variables/managing-environment-variables)
 2. Check the frontend origin accepted by FastAPI. The audited backend revision already accepts HTTPS hosts matching `[a-z0-9-]+.vercel.app`, including standard Vercel preview hosts. For a custom production or preview domain, add each exact frontend origin to the API service's `CORS_ORIGINS` as a comma-separated list and restart the service. Use the origin from the browser address bar, with the scheme and no path or trailing slash. [Backend CORS settings](https://github.com/NEVERHOT-Team/campaignTwin-backend/blob/0c3e6a2d6b08a6835e948a3aec156b35e77047fc/main.py)
 3. Open **Deployments** in Vercel and **Redeploy** the corresponding branch deployment, or push a new commit to that branch. Environment changes take effect at build time. Open the site's root URL in a fresh tab. A configured site starts in the connected planner and displays errors from an unavailable API.
-4. Select **Fill demo → Create review**. Approve the displayed revision and run it. Verify **Revise**, then choose **Edit order fee**, change the fee from ฿2 to ฿7, save, approve and run again. Verify **Hold**. Under **Approved evidence**, open each approval and check the saved fee in its ledger.
-5. The Network panel should show successful requests to `/api/v2/campaign-reviews`, the review's approval endpoint, and `/api/v2/runs` on Render. Verify that the status, report and input requests for each run resolve. The Arena planner and its v1 endpoints remain accessible at `/?mode=v1`. [Seller API schema](https://github.com/NEVERHOT-Team/campaignTwin-backend/blob/dev/docs/campaigntwin-api-v2.openapi.yaml)
+4. Select **Use sample brief** in chat and send it. Confirm the suggested values and resolve any remaining required fields. Approve the review and run the rehearsal. Open Arena and then Verdict.
+5. The Network panel should show successful requests to `/api/v1/campaign-reviews`, the review’s revision and approval endpoints, and `/api/v1/runs` on Render. Verify the status and report requests for the approved run. [v1 API schema](https://github.com/NEVERHOT-Team/campaignTwin-backend/blob/dev/docs/campaigntwin-api-v1.openapi.yaml)
 
 | Symptom | What to check |
 | --- | --- |
 | Root still opens the browser demo | Check the Vercel environment selected for the variable, redeploy that branch, and open the root without `?mode=demo`. |
 | Browser blocks the request but the API health URL opens | Check the exact frontend origin against FastAPI's CORS settings. |
 | Versioned review route returns 404 | Check the service's deployed backend branch and `/openapi.json`. |
-| Health passes but creating a review fails with a missing table | Apply `db/init.sql` and `db/seller_v2.sql` to the same database used by the running API. |
+| Health passes but creating a review fails with a missing table | Apply `db/init.sql` to the same database used by the running API. |
