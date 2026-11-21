@@ -836,6 +836,8 @@ export interface components {
             role: "user" | "ai" | "baseline";
             discount_pct: number;
             mechanic: string;
+            /** @description True when the discounted unit price after fees falls below unit cost plus shipping per unit. Older stored reports can omit this field. */
+            below_cost?: boolean;
             scenarios: {
                 [key: string]: components["schemas"]["ArenaPlanMetrics"];
             };
@@ -908,6 +910,35 @@ export interface components {
             rivals: components["schemas"]["ArenaRivalOutlook"][];
             similar_campaigns: components["schemas"]["ArenaSimilarCampaign"][];
         };
+        ArenaShopper: {
+            /** @description Simulated shopper ID stable across weeks and comparisons within this report. */
+            shopper_id: string;
+            /**
+             * @description Brand the shopper would choose this week.
+             * @enum {string}
+             */
+            brand: "ours" | "rival" | "market";
+            /** @enum {string} */
+            purchase: "bought" | "no_purchase";
+            /** @description True when a shopper skipped their purchase while waiting for a promotion. */
+            waiting: boolean;
+        };
+        ArenaShopperFrame: {
+            week: number;
+            agents: components["schemas"]["ArenaShopper"][];
+        };
+        /** @description A fixed sample of simulated shoppers in the middle seed of the run. Counts in these frames are unscaled. Map paths are illustrative. */
+        ArenaShopperReplay: {
+            seed: number;
+            /** @description Frames keyed by public plan_results input.plan_id, then evaluated scenario. */
+            plans: {
+                [key: string]: {
+                    [key: string]: components["schemas"]["ArenaShopperFrame"][];
+                };
+            };
+            /** @description The paired no-campaign sample, shared across scenarios. */
+            baseline: components["schemas"]["ArenaShopperFrame"][];
+        };
         /**
          * @description Include each evaluated scenario once, with each policy-required
          *     metric present exactly once even when unavailable. Percentiles are
@@ -940,6 +971,7 @@ export interface components {
             evaluation_engine?: "arena" | "synthetic_fallback";
             /** @description Why the run used the internal fallback evaluator. */
             fallback_reason?: string;
+            shopper_replay?: components["schemas"]["ArenaShopperReplay"];
             /** @description Effective spec paths mapped to their evidence source. */
             field_sources?: {
                 [key: string]: "user" | "data" | "default" | "derived";
@@ -960,7 +992,7 @@ export interface components {
                     [key: string]: components["schemas"]["ArenaBreakpoint"];
                 };
             };
-            /** @description Statements derived from the evaluated run's results. */
+            /** @description Statements derived from the evaluated run's results and the user offer's per-unit economics. */
             risks?: string[];
             /** @description Middle-seed event counts summed across plans in each evaluated scenario. A grouped rival action counts once. */
             events?: {

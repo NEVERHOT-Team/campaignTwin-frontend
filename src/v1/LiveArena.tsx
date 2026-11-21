@@ -5,6 +5,8 @@ import { WorkflowMap, type WorkflowEvidence } from '../WorkflowMap'
 import { ScenarioChoices } from '../ScenarioChoices'
 import { ProfitValue } from '../ProfitValue'
 import { ArenaVerdictPrompt } from '../ArenaVerdictPrompt'
+import { PixelArena } from '../PixelArena'
+import { defaultBrandGroups } from '../model'
 import { ProductGoods, catalogPhoto } from '../ProductGoods'
 import { humanize } from './planner'
 import { frozenOffer, labelsForReport } from './strategy-comparison'
@@ -205,6 +207,26 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
   const eligibleHouseholds = eligibleSegments.reduce((sum,s) => sum+s.households,0)
   const comparedPlans = plans.filter(p => p.scenario_results.some(s => s.scenario === scene?.scenario))
   const comparedLabels = comparedPlans.map(p => planLabels[p.role])
+  const replay = report.shopper_replay
+  const frames = plan?.role === 'baseline' ? replay?.baseline
+    : plan && scene ? replay?.plans[plan.input.plan_id]?.[scene.scenario] : undefined
+  const [frameIndex,setFrameIndex] = useState(0)
+  const [playing,setPlaying] = useState(() => !globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  const [shopperId,setShopperId] = useState<string|null>(null)
+  const frame = frames?.[Math.min(frameIndex,frames.length-1)]
+  const nextFrame = !!frames && frameIndex < frames.length-1
+  useEffect(() => {
+    if (!playing || !nextFrame || view === 'flow') return
+    const timer = globalThis.setTimeout(() => setFrameIndex(index => index + 1), 1600)
+    return () => clearTimeout(timer)
+  },[frames,frameIndex,nextFrame,playing,view])
+  const mapProps = frame && {
+    agents:frame.agents, groups:defaultBrandGroups, day:frame.week,
+    selected:shopperId, onSelect:setShopperId, playing:playing && nextFrame,
+  }
+  const selectedShopper = frame?.agents.find(agent => agent.shopper_id === shopperId)
+  const selectedBrand = defaultBrandGroups.find(group => group.id === selectedShopper?.brand)?.label
+
   const engineId = plan?.role === 'original' || plan?.role === 'baseline'
     ? report.plans?.find(row => row.role === (plan.role === 'original' ? 'user' : 'baseline'))?.plan_id
     : report.evaluation_engine === 'arena' ? plan?.input.offer?.offer_id.replace(/^arena-/, '') : undefined
@@ -217,7 +239,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
   return <div className="rehearsal-arena live-market-arena">
     <header className="ra-heading"><h1>Market arena</h1>
       <div className="live-arena-actions">
-        {onOpenDemo && <button type="button" className="button secondary" onClick={onOpenDemo}>Open shopper replay</button>}
+        {!frame && onOpenDemo && <button type="button" className="button secondary" onClick={onOpenDemo}>Open shopper replay</button>}
         <ArenaVerdictPrompt onVerdict={onVerdict}/>
       </div>
     </header>
@@ -267,10 +289,11 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
         <div className="ra-stage-header"><div><h2 id="live-market-square">{view === 'flow' ? 'Simulation workflow' : 'Market square'}</h2>
           <p>{sourceLabel}{plan && ' · ' + planLabels[plan.role]}</p></div></div>
         {view !== 'flow' && <div className="live-market-replay-note">
-          <p>This campaign report includes weekly shopper counts. The separate sample replay shows animated shoppers.</p>
+          <p>{frame ? `${frame.agents.length} simulated shoppers from seed ${replay?.seed}. The map illustrates their recorded weekly choices.`
+            : 'This report has no shopper frames. Open the sample replay to see an animated example.'}</p>
         </div>}
-        <ArenaViews onViewChange={setView} twoD={<figure><IllustratedMarket/></figure>}
-          isometric={<figure><IsometricMarket/></figure>}
+        <ArenaViews onViewChange={setView} twoD={<figure>{mapProps ? <PixelArena {...mapProps}/> : <IllustratedMarket/>}</figure>}
+          isometric={<figure><IsometricMarket {...mapProps}/></figure>}
           flow={<WorkflowMap mode="live" plan={plan && planLabels[plan.role]} scenario={scene?.scenario}
             evidence={liveWorkflow(report,matchedReview,plan,scene,comparedPlans,eligibleSegments.length ? eligibleHouseholds : undefined)}
             revision={report.revision} comparisons={comparedLabels} decision={humanize(report.decision.status)}
@@ -278,6 +301,23 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
               const choice = comparedPlans.find(p => planLabels[p.role] === label)
               if (choice) choosePlan(choice.input.plan_id)
             }} onVerdict={onVerdict}/>}/>
+        {view !== 'flow' && frame && <div className="live-shopper-playback">
+          {frames && frames.length > 1 && <div className="ra-playback">
+            <button type="button" className="ra-btn ra-inverse" onClick={() => {
+              if (!nextFrame) setFrameIndex(0)
+              setPlaying(!nextFrame || !playing)
+            }}>{!nextFrame ? 'Replay' : playing ? 'Pause' : 'Play'}</button>
+            <label>Week {frame.week} of {frames.length}
+              <input type="range" min={0} max={frames.length-1} value={Math.min(frameIndex,frames.length-1)}
+                aria-label="Simulation week" aria-valuetext={`Week ${frame.week}`}
+                onChange={event => {setPlaying(false);setFrameIndex(Number(event.target.value))}}/>
+            </label>
+          </div>}
+          <p aria-live="polite">{selectedShopper
+            ? `${humanize(selectedShopper.shopper_id.replace('-', ' '))} · ${selectedShopper.purchase === 'bought'
+              ? `Bought from ${selectedBrand}` : selectedShopper.waiting ? 'Waiting for a promotion' : 'No purchase this week'}`
+            : 'Select a shopper to see their outcome for this week.'}</p>
+        </div>}
         {!!weekly?.length && <details className="live-rail-detail">
           <summary>Weekly shopper outcomes · {scene?.scenario}</summary>
           <div className="live-market-table" role="region" aria-label="Weekly shopper outcomes" tabIndex={0}>
