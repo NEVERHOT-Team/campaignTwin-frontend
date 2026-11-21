@@ -262,7 +262,7 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
         : report && !viewVerdict ? <LiveArena report={report} review={review} selection={selection} onVerdict={() => setViewVerdict(true)}/>
         : report ? <><RunReport report={report} selection={selection}/><div className="v1-verdict-actions"><button className="intake-secondary" onClick={() => setViewVerdict(false)}>Back to arena</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></div></>
         : run ? <section className="v1-loading">
-          <h1>{state?.status === 'error' ? 'Run failed' : state?.status === 'done' ? 'Opening verdict…' : 'Rehearsal in progress'}</h1>
+          <h1>{state?.status === 'error' ? 'Run failed' : state?.status === 'done' ? 'Loading simulation results…' : 'Rehearsal in progress'}</h1>
           <p>{state?.failure?.message ?? (state ? `${humanize(state.status)} · ${Math.round(state.progress*100)}%` : 'Waiting for run status…')}</p>
           {state && <progress value={state.progress} max="1"/>}
           {pollError && <><p role="alert">{pollError}</p><button className="intake-secondary" onClick={() => { setPollError(''); setAttempt(x => x+1) }}>Check status again</button></>}

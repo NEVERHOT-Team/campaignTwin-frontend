@@ -22,7 +22,19 @@
 .ra-heading,.ra-stage-header,.ra-playback,.ra-stage-caption,.ra-trend-header,.ra-key {
   display:flex;align-items:center
 }
-.ra-heading {justify-content:space-between;gap:18px;margin-bottom:18px}
+.ra-verdict-prompt {position:relative;display:inline-flex;align-items:center;justify-content:space-between;gap:14px;min-height:44px;padding:5px 5px 5px 12px;border:1px solid #444;border-radius:11px;background:#181818}
+.ra-verdict-prompt:hover {background:#222;border-color:#777}
+.ra-verdict-prompt:has(:focus-visible) {outline:2px solid #eee;outline-offset:3px}
+.ra-complete-status {display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:550;color:#eee}
+.ra-complete-status::before {content:'';width:7px;height:7px;border-radius:50%;background:#73d9a2}
+.rehearsal-arena button.ra-verdict-action {border:0;padding:7px 11px;border-radius:7px;background:#ededed;color:#111;font-size:13px;font-weight:600}
+/* Keep the stretched hit area on the whole prompt while the pointer is down. */
+.ra-verdict-action:active {scale:none}
+.ra-verdict-action::after {content:'';position:absolute;inset:0;border-radius:11px}
+.ra-replay-result:not(:empty) {margin-top:12px}
+.ra-replay-result .ra-verdict-prompt {width:100%}
+@media(max-width:600px) {.ra-heading .ra-verdict-prompt {width:100%}}
+.ra-heading {flex-wrap:wrap;justify-content:space-between;gap:18px;margin-bottom:18px}
 .rehearsal-arena .ra-plan,.ra-find input {
   appearance:auto;color-scheme:dark;background:var(--ra-control);color:var(--ra-text);
   border:1px solid var(--ra-line);border-radius:8px;font:inherit;font-size:13px;

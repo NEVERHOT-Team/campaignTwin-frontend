@@ -4,6 +4,7 @@ import { ArenaViews, IsometricMarket } from '../ArenaViews'
 import { WorkflowMap, type WorkflowEvidence } from '../WorkflowMap'
 import { ScenarioChoices } from '../ScenarioChoices'
 import { ProfitValue } from '../ProfitValue'
+import { ArenaVerdictPrompt } from '../ArenaVerdictPrompt'
 import { ProductGoods, catalogPhoto } from '../ProductGoods'
 import { humanize } from './planner'
 import type { Report, Review } from './client'
@@ -209,9 +210,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
 
   return <div className="rehearsal-arena live-market-arena">
     <header className="ra-heading"><h1>Market arena</h1>
-      <div className="ra-head-controls">
-        <button className="ra-btn ra-primary" onClick={onVerdict}>View verdict</button>
-      </div>
+      <ArenaVerdictPrompt onVerdict={onVerdict}/>
     </header>
 
     {scene && <ScenarioChoices options={labels} value={scene.scenario} onChange={selection.setScenarioId} label={results.length === 1 ? 'Evaluated scenario' : 'Rival scenario'}/>}

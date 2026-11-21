@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { baselineSeries, preferenceSeries, seriesColor, type ChartSeries } from './chart-series'
+import { ArenaVerdictPrompt } from './ArenaVerdictPrompt'
 import { ArenaViews, IsometricMarket } from './ArenaViews'
 import { WorkflowMap } from './WorkflowMap'
 import { replayWorkflowEvidence } from './replay-workflow'
@@ -174,7 +175,7 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
   return <div className="rehearsal-arena">
     <header className="ra-heading">
       <h1>Market arena</h1>
-      <button className="ra-btn ra-primary" onClick={onVerdict}>View verdict</button>
+      <ArenaVerdictPrompt onVerdict={onVerdict}/>
     </header>
     <ScenarioChoices options={report.scenarios.map(s => ({ id:s.scenario_id, label:s.label, description:s.description }))}
       value={scenario} onChange={id => { setPlaying(false); changeScenario(id) }}/>
@@ -256,6 +257,9 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
         </div>
         <div className="ra-checkpoints" aria-label="Timeline checkpoints">{checkpoints.map(m=>
           <button type="button" aria-pressed={day===m.at} key={m.label} onClick={() => jump(m.at)}>{m.label}</button>)}</div>
+        <div className="ra-replay-result" aria-live="polite" aria-atomic="true">
+          {days?.length && day === to ? <ArenaVerdictPrompt replayEnd onVerdict={onVerdict}/> : null}
+        </div>
       </section>
 
       <aside className="ra-rail ra-right" aria-label="Rival activity and purchase decisions">

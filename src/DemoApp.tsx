@@ -46,7 +46,7 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
   const [traceStatus, setTraceStatus] = useState('')
   const submission = useRef<{ body: string; id: string } | undefined>(undefined)
   const submitting = useRef(false)
-  const report = run?.report
+  const report = run?.status === 'complete' ? run.report : null
   const runId = run?.run_id
   const hasReport = Boolean(report)
 
@@ -323,7 +323,7 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
     setBusy('replay'); setError('')
     try {
       const value = await api.replay()
-      if (!value.run?.report) throw new Error('A completed run is unavailable for replay.')
+      if (value.run?.status !== 'complete' || !value.run.report) throw new Error('A completed run is unavailable for replay.')
       setReplay(value); setRun(value.run); setPollProblem(''); showReport(value.run.report, true); go('arena')
     } catch (err) { setError(errorText(err, 'Replay could not be opened.')) }
     finally { setBusy('') }
