@@ -56,11 +56,11 @@ type Props = {
   report: Report; result?: Result; baseline?: Result; scenario: string; changeScenario: (id: string) => void
   planId: string; changePlan: (id: string) => void; day: number; changeDay: (day: number) => void
   selected: string | null; select: (id: string | null) => void; trace: Trace | null; traceStatus: string
-  light: boolean; onVerdict: () => void
+  light: boolean; autoPlay?: boolean; onVerdict: () => void
 }
 
-export function Arena({ report, result, baseline, scenario, changeScenario, planId, changePlan, day, changeDay, selected, select, trace, traceStatus, onVerdict }: Props) {
-  const [playing, setPlaying] = useState(false)
+export function Arena({ autoPlay = false, report, result, baseline, scenario, changeScenario, planId, changePlan, day, changeDay, selected, select, trace, traceStatus, onVerdict }: Props) {
+  const [playing, setPlaying] = useState(() => autoPlay && !window.matchMedia('(prefers-reduced-motion: reduce)').matches)
   const [ghost, setGhost] = useState(false)
   const [view, setView] = useState<'isometric' | '2d' | 'flow'>('isometric')
   const [lens, setLens] = useState<ShopperLens | null>(null)

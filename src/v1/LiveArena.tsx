@@ -205,7 +205,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
   const eligibleHouseholds = eligibleSegments.reduce((sum,s) => sum+s.households,0)
   const comparedPlans = plans.filter(p => p.scenario_results.some(s => s.scenario === scene?.scenario))
   const comparedLabels = comparedPlans.map(p => planLabels[p.role])
-  const floorCaption = <figcaption className="live-market-caption">Market illustration · This run reports aggregate outcomes. Brand destinations and shopper positions are unavailable.</figcaption>
+
 
   return <div className="rehearsal-arena live-market-arena">
     <header className="ra-heading"><h1>Market arena</h1>
@@ -256,8 +256,12 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
       <section className="ra-market" aria-labelledby="live-market-square">
         <div className="ra-stage-header"><div><h2 id="live-market-square">{view === 'flow' ? 'Simulation workflow' : 'Market square'}</h2>
           <p>{sourceLabel}{plan && ' · ' + planLabels[plan.role]}</p></div></div>
-        <ArenaViews onViewChange={setView} twoD={<figure><IllustratedMarket/>{floorCaption}</figure>}
-          isometric={<figure><IsometricMarket/>{floorCaption}</figure>}
+        {view !== 'flow' && <div className="live-market-replay-note">
+          <p>Map illustration. This run contains aggregate results only. Shopper movement is available in the separate demo replay.</p>
+          {onOpenDemo && <button type="button" className="ra-text-btn" onClick={onOpenDemo}>Open shopper replay</button>}
+        </div>}
+        <ArenaViews onViewChange={setView} twoD={<figure><IllustratedMarket/></figure>}
+          isometric={<figure><IsometricMarket/></figure>}
           flow={<WorkflowMap mode="live" plan={plan && planLabels[plan.role]} scenario={scene?.scenario}
             evidence={liveWorkflow(report,matchedReview,plan,scene,comparedPlans,eligibleSegments.length ? eligibleHouseholds : undefined)}
             revision={report.revision} comparisons={comparedLabels} decision={humanize(report.decision.status)}
@@ -269,7 +273,6 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
           <p>Evaluation window · {interval(report.measurement_window)}</p>
           {input && <p>{input.seeds.length} paired seeds</p>}
         </div>
-        {onOpenDemo && <button className="ra-text-btn" onClick={onOpenDemo}>Explore the shopper demo</button>}
       </section>
 
       <aside aria-label="Decision and evaluation policy" className="ra-rail ra-right">

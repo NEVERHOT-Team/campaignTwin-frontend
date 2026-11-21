@@ -8,7 +8,7 @@ import './intake.css'
 
 type Props = {
   brief:string; onBrief?:(text:string)=>void; draft:Draft; onChange:(field:FieldKey,value:string)=>void
-  onConfirm:(field:FieldKey)=>void; onSample:()=>void; onExtract:(text:string)=>Promise<{ok:boolean;reply:string}>
+  onConfirm:(field:FieldKey)=>void; onSample:()=>void; onFillSample:()=>string; onExtract:(text:string)=>Promise<{ok:boolean;reply:string}>
   onReview:()=>void; onRun:()=>void; onReplay:()=>void; review:ReviewContext|null; candidates:Candidate[]
   chosen:string[]; onToggle:(id:string)=>void; candidateEdits:Record<string,string>; onCandidateEdit:(id:string,value:string)=>void
   onRevalidate:(candidate:Candidate)=>void; onApprove:(approved:boolean)=>void; approved:boolean
@@ -187,6 +187,7 @@ function PlanReview({p, chosenInvalid, approval}:{p:Props;chosenInvalid:boolean;
 }
 
 export function Input(p:Props){
+  const [sampleNotice,setSampleNotice]=useState('')
   const needed=p.draft.fields.filter(f=>f.value!==null && f.confirmation==='pending')
   const remaining=needed.filter(f=>!p.draft.confirmed.includes(f.field_id))
   const errors=questionErrors(p.questions)
@@ -212,8 +213,11 @@ export function Input(p:Props){
     <h1 className="sr-only">Campaign plan</h1>
     <CampaignChat p={p} runApproval={ready && <RunApproval {...approval} label="Approve the selected plans and assumptions" action={p.busy==='run'?'Starting…':'Run simulation'}/>}/>
     <section className="intake-form" aria-labelledby="campaign-details-title">
-      <header className="intake-heading"><h2 id="campaign-details-title">Campaign details</h2></header>
+      <header className="intake-heading"><h2 id="campaign-details-title">Campaign details</h2>
+        {!p.review && <button type="button" className="intake-link" disabled={disabled} onClick={()=>setSampleNotice(p.onFillSample())}>Fill sample fields</button>}
+      </header>
       <div className="intake-form-body">
+        {!p.review && sampleNotice && <p className="intake-review-notice" role="status">{sampleNotice}</p>}
         <ProductGoods photo={categoryPhoto(p.draft.campaign['brand.category'], p.draft.values.brand)}/>
         {needed.length>0 && <Disclosure title={remaining.length?`Confirm details from your brief (${remaining.length})`:'Confirmed details from your brief'} openOnError={!!remaining.length}>
           <ul className="intake-candidates">{needed.map(f=><li key={f.field_id}>

@@ -2,7 +2,7 @@ import { scrollToWorkspaceStart } from '../workspace-motion'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { WorkspaceHeader } from '../WorkspaceHeader'
 import { ApiError, createV1Client, type Approval, type Review, type Report, type RunState } from './client'
-import { changes, controls, humanize, issue, toFields, toForm } from './planner'
+import { changes, controls, fillV1Sample, humanize, issue, sampleProducts, toFields, toForm } from './planner'
 import { RunReport } from './RunReport'
 import { useRunSelection } from './run-selection'
 import LiveArena from './LiveArena'
@@ -19,7 +19,7 @@ type Saved = { reviewId: string; turns: Turn[]; receipt: Approval | null; run: R
 const firstKeys = ['product_hint','pack_hint','product_choice_id','channel','audience_hint','objective','budget_thb','start_date','end_date']
 const offerKeys = ['offer.kind','offer.value','offer.unit']
 const restrictionKeys = ['offer.min_spend_thb','offer.cap_per_user','offer.eligibility']
-const demoBrief = 'Use the synthetic demo toilet tissue for all buyers. Target incremental profit, with a 1000 THB budget and a 10 THB voucher next week.'
+const demoBrief = 'Use the synthetic demo toilet tissue for all buyers. Target incremental profit with a 1000 THB budget and a 10 THB voucher from 2026-11-07 until 2026-12-05.'
 const fieldKey = (pointer:string) => pointer.startsWith('/facts/') ? pointer.slice(7).replaceAll('/','.') : ''
 const valueLabel = (value:unknown):string => typeof value === 'object' && value !== null ? Object.entries(value).map(([k,v]) => humanize(k) + ' ' + String(v)).join(' · ') : String(value)
 function loadSaved(key:string):Saved|null {
@@ -36,7 +36,7 @@ function addPendingQuestion(turns:Turn[], r:Review|null) {
   return prompt ? [...turns,{speaker:'assistant' as const,text:prompt}] : turns
 }
 
-export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
+export default function Workflow({ onOpenDemo, onSeller }: { onOpenDemo?: (play?:boolean) => void; onSeller?: () => void }) {
   const [api] = useState(() => createV1Client(import.meta.env.VITE_API_BASE_URL))
   const sessionKey = 'campaigntwin-v1-session/' + api.origin
   const [saved] = useState(() => loadSaved(sessionKey))
@@ -45,6 +45,7 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
   const [draftText,setDraftText] = useState('')
   const [turns,setTurns] = useState<Turn[]>([])
   const [form,setForm] = useState<Record<string,string>>({})
+  const [sampleNotice,setSampleNotice] = useState('')
   const [review,setReview] = useState<Review|null>(null)
   const [confirmed,setConfirmed] = useState<string[]>([])
   const [consent,setConsent] = useState(false)
@@ -132,11 +133,22 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
 
   function accept(next:Review) {
     setReview(next); setForm(toForm(next.facts)); setConfirmed([]); setConsent(false); setReceipt(null); setPending(null)
+    setSampleNotice('')
   }
   function edit(key:string,value:string) {
     setForm(f => ({...f,[key]:value})); setConsent(false); setReceipt(null); setError(''); setNotice('')
     const parent = key.split('.')[0]
     setConfirmed(ids => ids.filter(id => fieldKey(review?.candidates.find(c => c.candidate_id === id)?.field ?? '').split('.')[0] !== parent))
+  }
+  function fillSample() {
+    if (locked || consent || receipt) return
+    const confirmedFields = new Set(review?.candidates.filter(c=>confirmed.includes(c.candidate_id)).map(c=>fieldKey(c.field).split('.')[0]))
+    const preferred = draftText.trim()===demoBrief ? 'demo-tissue-12-shopee' : undefined
+    const additions = Object.entries(fillV1Sample(form,review,preferred)).filter(([key,value])=>form[key]!==value && !confirmedFields.has(key.split('.')[0]))
+    if (!additions.length) {setSampleNotice('All applicable fields already have values.');return}
+    setForm({...form,...Object.fromEntries(additions)})
+    setSampleNotice('Filled empty fields with a local example. Review the details before saving.')
+    setError('')
   }
   function handle(e:unknown) {
     const message = e instanceof Error ? e.message : 'Request failed.'
@@ -214,6 +226,7 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
     try { sessionStorage.removeItem(sessionKey) } catch { /* Storage is optional. */ }
     setRun(null); setState(null); setReport(null); setViewVerdict(false); setReview(null); setReceipt(null); setConsent(false); setConfirmed([])
     setDraftText(''); setForm({}); setTurns([]); setError(''); setNotice(''); setPollError(''); setPending(null)
+    setSampleNotice('')
     setAbandoned(true)
   }
   const [abandoned,setAbandoned] = useState(false)
@@ -223,15 +236,19 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
       [...ids.filter(id => review?.candidates.find(other => other.candidate_id === id)?.field !== c.field),c.candidate_id])
     setConsent(false); setReceipt(null)
   }
+  const productChoices = review?.supported_product_choices ?? (sampleNotice ? sampleProducts : [])
   function field(key:string) {
     const c = controls.find(c => c.key === key)!
-    if (key === 'product_choice_id' && !review?.supported_product_choices.length && !form[key]) return null
+    if (key === 'product_choice_id' && !productChoices.length && !form[key]) return null
     const provenance = review?.fact_origins['/facts/'+key.replace('.','/')] ?? review?.fact_origins['/facts/'+key.split('.')[0]]
     const origin = provenance === 'data' ? 'From catalog' : provenance === 'default' ? 'Server assumption' : provenance === 'planner_confirmed_extraction' ? 'Confirmed from chat' : ''
     const changed = (form[key] ?? '') !== (review ? toForm(review.facts)[key] ?? '' : '')
-    return <label key={key} className="intake-field" htmlFor={'v1-'+key}><span>{c.label}</span>
-      {c.type === 'select' ? <select className="intake-control" id={'v1-'+key} value={form[key] ?? ''} onChange={e => edit(key,e.target.value)}>
-        <option value="">Choose…</option>{key === 'product_choice_id' ? review?.supported_product_choices.map(p =>
+    return <label key={key} className="intake-field" htmlFor={'v1-'+key}><span id={'v1-label-'+key}>{key==='product_choice_id' && !review ? 'Example product and pack' : c.label}</span>
+      {c.type === 'select' ? <select className="intake-control" id={'v1-'+key} aria-labelledby={'v1-label-'+key} value={form[key] ?? ''} onChange={e => edit(key,e.target.value)}>
+        <option value="">Choose…</option>
+        {key==='product_choice_id' && form[key] && !productChoices.some(p=>p.choice_id===form[key]) &&
+          <option disabled value={form[key]}>Unavailable catalog choice · {form[key]}</option>}
+        {key === 'product_choice_id' ? productChoices.map(p =>
           <option key={p.choice_id} value={p.choice_id}>{p.label} · {p.pack_label} · {p.channel}</option>)
           : c.options?.map(o => <option key={o} value={o}>{o === 'THB' ? 'THB' : o === 'pct' ? 'Percent' : humanize(o)}</option>)}
       </select> : <input className="intake-control" id={'v1-'+key} type={c.type ?? 'text'} min={c.min} maxLength={key === 'channel' ? 80 : undefined}
@@ -255,11 +272,11 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
   }, [phase])
   return <>
     <a className="skip-link" href="#planner-workspace">Skip to workspace</a>
-    <WorkspaceHeader status="API workspace" action={onOpenDemo && <button type="button" onClick={onOpenDemo}>Demo arena</button>}><span className="v1-current-step">{phase}</span></WorkspaceHeader>
+    <WorkspaceHeader status="API workspace" onHome={onSeller} action={onOpenDemo && <button type="button" onClick={()=>onOpenDemo()}>Demo arena</button>}><span className="v1-current-step">{phase}</span></WorkspaceHeader>
     <main className="workspace v1-workspace" id="planner-workspace">
       {restoring ? <p className="v1-loading" role="status">Reopening campaign…</p>
         : failedRestore ? <section className="v1-loading"><h1>Reopen campaign</h1><p role="alert">{error}</p><button className="intake-primary" onClick={() => setRestoreAttempt(n => n+1)}>Try again</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></section>
-        : report && !viewVerdict ? <LiveArena report={report} review={review} selection={selection} onVerdict={() => setViewVerdict(true)}/>
+        : report && !viewVerdict ? <LiveArena report={report} review={review} selection={selection} onOpenDemo={onOpenDemo && (()=>onOpenDemo(true))} onVerdict={() => setViewVerdict(true)}/>
         : report ? <><RunReport report={report} selection={selection}/><div className="v1-verdict-actions"><button className="intake-secondary" onClick={() => setViewVerdict(false)}>Back to arena</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></div></>
         : run ? <section className="v1-loading">
           <h1>{state?.status === 'error' ? 'Run failed' : state?.status === 'done' ? 'Loading simulation results…' : 'Rehearsal in progress'}</h1>
@@ -300,7 +317,11 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
                   onChange={e => setDraftText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) { e.preventDefault(); e.currentTarget.form?.requestSubmit() } }}/>
                 <div className="intake-composer-actions">
-                  {!review ? <button type="button" className="intake-link" disabled={locked} onClick={() => { setDraftText(demoBrief); composer.current?.focus() }}>Use sample brief</button>
+                  {!review ? <button type="button" className="intake-link" disabled={locked || Boolean(draftText.trim())} onClick={() => {
+                    const product = sampleProducts.find(p=>p.choice_id===form.product_choice_id)
+                    setDraftText(product ? `Rehearse the selected pack on ${product.channel} using the offer and budget in the form.` : demoBrief)
+                    composer.current?.focus()
+                  }}>Use sample brief</button>
                     : <small>{review.agent.status === 'degraded' ? 'Local interpretation · assistant unavailable' : 'Enter to send'}</small>}
                   <button type="submit" className="intake-send" disabled={locked || !draftText.trim()}>{busy === 'send' ? 'Sending…' : 'Send'}</button>
                 </div>
@@ -309,8 +330,11 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
             </div>
           </section>
           <form className="intake-form" onSubmit={e => write('save',e)} aria-labelledby="v1-form-title">
-            <header className="intake-heading"><h2 id="v1-form-title">Campaign details</h2>{review && <small>Revision {review.revision}</small>}</header>
+            <header className="intake-heading"><h2 id="v1-form-title">Campaign details</h2>{review && <small>Revision {review.revision}</small>}
+              {!consent && !receipt && <button type="button" className="intake-link" disabled={locked} onClick={fillSample}>Fill sample fields</button>}
+            </header>
             <fieldset className="v1-fields intake-form-body" disabled={locked}>
+              {sampleNotice && <p className="intake-review-notice" role="status">{sampleNotice}</p>}
               <ProductGoods photo={catalogPhoto(selectedProduct)}/>
               <div className="intake-field-grid">{firstKeys.map(field)}</div>
               <h3>Offer</h3><div className="intake-field-grid v1-offer-grid">{offerKeys.map(field)}</div>

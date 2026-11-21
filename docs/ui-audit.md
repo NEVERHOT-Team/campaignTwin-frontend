@@ -29,3 +29,9 @@ The Arena walkthrough also covered a five-group sample with two competitors, a g
 The production Chromium walkthrough exercised all ten v1 operations on backend `dev@fd13e63`, including a follow-up, review reload, confirmation, approval and the three report evidence reads. Browser checks covered positive and negative profit, a zero baseline, exact percentiles, keyboard navigation, desktop wheel interpolation and enabling reduced motion at runtime. The connected handoff records the full backend suite result. The synthetic policy is a rehearsal of the submitted terms. Commercial seller evidence and a live shopper trace feed remain backend integration questions.
 
 The project’s campaign UI, Playwright, debugging and code-review skills live in `.agents/skills/`.
+
+## Seller fee decision and the connected Arena
+
+Against backend `dev` at `d713a2a`, the connected seller planner approved the same campaign twice with one changed field. At ฿2 per kept order, the ฿5 voucher returned ฿33 per redeemed pack and the evaluator recommended **Revise**. At ฿7, the return fell to ฿28 against the same ฿32 floor and the evaluator recommended **Hold**. The UI retrieved the original and revised inputs separately, including after reload. Each of the 48 seed ledgers charged the approved fee per kept order. A dropped submission response reopened the same run on retry. The seller verdict fit 320px and 390px widths.
+
+The connected v1 brief for the synthetic 12-roll pack, ฿10 voucher and ฿1,000 budget returned an S1 median of −฿600 for November 23–29, 2026. Its aggregate report contained no shopper frames. In Chromium, **Open shopper replay** opened a separate fixture, advanced its timeline and changed the isometric canvas pixels. Returning to the connected planner restored the report. Reopening the replay after the final day restarted playback. Browsers requesting reduced motion keep manual playback.

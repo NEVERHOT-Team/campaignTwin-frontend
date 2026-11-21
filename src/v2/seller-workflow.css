@@ -1,0 +1,39 @@
+.seller-workspace {padding-bottom:36px}
+.seller-phase {font-size:.85rem;color:#ddd}
+.seller-workspace .intake-heading {align-items:center;gap:12px}
+.seller-workspace .intake-heading .intake-secondary {min-height:36px;padding:6px 14px}
+.seller-caption {display:block;margin-bottom:5px;color:#ababab;font-size:.72rem}
+.seller-workspace .intake-turn small,.seller-feedback,.seller-unsaved p,.seller-workspace .intake-composer-actions>span {color:#b6b6b6;font-size:.8rem;line-height:1.5}
+.seller-feedback {margin:10px 0 0;white-space:pre-line;overflow-wrap:anywhere}
+.seller-feedback[role=alert],.seller-feedback [role=alert]{color:#f4f4f4}
+.seller-recovery {display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:8px}
+.seller-recovery button {min-height:44px}
+.seller-unsaved {display:flex;align-items:center;justify-content:space-between;gap:14px}
+.seller-choices {display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin-bottom:2px}
+.seller-choices button {flex-direction:column;align-items:flex-start;text-align:start;min-height:42px;line-height:1.4}
+.seller-choices button small {color:#b8b8b8;font:inherit;font-size:.75rem}
+.seller-transcript>* {flex-shrink:0}
+.seller-form-approval {padding:0 0 12px}
+.seller-evidence {width:100%;margin:12px 0;border-top:1px solid #333;line-height:1.5}
+.seller-transcript>.seller-evidence {margin:0}
+.seller-evidence summary {cursor:pointer;padding:12px 0;color:#dedede;font-size:.85rem;font-weight:550}
+.seller-evidence h3 {font-size:.875rem;color:#eee;margin:12px 0 6px}
+.seller-evidence p,.seller-evidence dd {font-size:.82rem;color:#bdbdbd}
+.seller-evidence dl {display:grid;gap:8px;margin:6px 0 12px}
+.seller-evidence dt {color:#eee;font-size:.85rem}
+.seller-evidence dd{margin:0;overflow-wrap:anywhere}
+.seller-evidence dd small{display:block;font-size:.72rem;color:#a6a6a6}
+.seller-history {display:inline-flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:.8rem;color:#c3c3c3}
+.seller-history select {background:#171717;border:1px solid #3c3c3c;border-radius:8px;padding:6px 10px;color:#eee;min-height:40px;font:inherit;color-scheme:dark}
+.seller-intake .seller-history {display:flex;border-top:1px solid #2d2d2d;margin-top:15px;padding-top:14px}
+.seller-field-priority {margin-bottom:21px}
+.seller-field-priority h3 {margin:2px 0 12px;font-size:.87rem;font-weight:550}
+.seller-intake .intake-form>.v1-evidence {margin:0;border-top:1px solid #303030}
+.seller-intake .intake-form>.v1-evidence>summary {cursor:pointer;padding:12px 0;min-height:44px;font:inherit;font-size:.85rem;line-height:1.5;color:#e4e4e4}
+.seller-intake .intake-form>.v1-evidence>.intake-field-grid {margin:0 0 16px}
+.seller-intake .intake-field small {color:#aaa;font-size:.72rem;font-weight:400}
+.seller-results-nav {max-width:1280px;margin:14px auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.seller-status {max-width:650px;margin:60px auto;display:grid;gap:12px;justify-items:start}
+.seller-status h1 {font-size:clamp(25px,3vw,34px);letter-spacing:-.035em}
+.seller-status p {color:#c7c7c7;font-size:.9rem}
+@media(max-width:760px){.seller-choices button,.seller-intake .intake-heading .intake-secondary{min-height:44px}.seller-results-nav{margin-top:14px}.seller-evidence summary{min-height:44px}}

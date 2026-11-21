@@ -1,6 +1,7 @@
 .live-market-illustration {margin:0}
 .live-market-illustration canvas {image-rendering:pixelated}
-.live-market-caption {margin:8px 2px 0;color:var(--ra-soft);font-size:12px;line-height:1.45}
+.live-market-replay-note {display:flex;align-items:center;justify-content:space-between;gap:6px 16px;flex-wrap:wrap;margin:0 0 10px}
+.live-market-replay-note p {flex:1 1 200px;font-size:12px;line-height:1.45}
 .live-market-arena figure {margin:0}
 .live-market-arena .ra-left,.live-market-arena .ra-right {overflow:hidden}
 .live-market-arena .ra-rail-section {padding:clamp(15px,1.45vw,23px)}

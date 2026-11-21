@@ -2,6 +2,7 @@ import { scrollToWorkspaceStart } from './workspace-motion'
 import { campaignDefaults, campaignFields, exampleCampaign, fieldIssues, labelsForCorePaths, type Question } from './campaign'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { demoEconomics } from './fixtures'
+import { fillOfflineSample } from './form-sample'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Arena } from './Arena'
 import { Input } from './Input'
@@ -17,7 +18,7 @@ const errorText = (error: unknown, fallback: string) => error instanceof Error ?
 const pendingFields = (draft: Draft) => draft.fields.filter(f => f.confirmation === 'pending' && f.value !== null && !draft.confirmed.includes(f.field_id))
 const startDraft = (): Draft => ({ values: { ...emptyValues, ...demoEconomics }, fields: [], confirmed: [], campaign: { ...campaignDefaults }, goals: [], mechanics: [], answers: {} })
 
-export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit: number; active: boolean; onOpenLive?: () => void }) {
+export default function DemoApp({ arenaVisit, playVisit, active, onOpenLive }: { arenaVisit: number; playVisit:number; active: boolean; onOpenLive?: () => void }) {
   const [screen, setScreen] = useState<Screen>('input')
   const [brief, setBrief] = useState('')
   const [draft, setDraft] = useState(startDraft)
@@ -60,12 +61,25 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
     title?.focus({ preventScroll:true })
   }, [screen])
 
+  const [preparedVisit, setPreparedVisit] = useState(0)
+  const playedVisit = useRef(0)
+  const startReplayPlaying = active && playVisit > 0 && preparedVisit === playVisit && playedVisit.current !== playVisit
+  useEffect(() => {
+    if (startReplayPlaying && screen === 'arena' && hasReport) playedVisit.current = playVisit
+  },[startReplayPlaying,screen,hasReport,playVisit])
+
   const openedFromPlanner = useRef(0)
   useEffect(() => {
     if (!active || !arenaVisit || openedFromPlanner.current === arenaVisit) return
     openedFromPlanner.current = arenaVisit
-    if (run) go('arena')
-    else void openReplay()
+    if (run) {
+      if (playVisit && report) {
+        const selectedResult = report.results.find(row => row.scenario_id === scenario && row.plan_id === planId)
+        setDay(selectedResult?.daily[0]?.day ?? report.window.start_day)
+      }
+      go('arena')
+    } else void openReplay()
+    setPreparedVisit(arenaVisit)
   }, [active, arenaVisit])
 
   function go(next: Screen) {
@@ -171,6 +185,18 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
       campaign: { ...exampleCampaign, ...Object.fromEntries(Object.entries(current.campaign).filter(([,value]) => value.trim())) },
     }))
     setQuestions([]); setIssues({}); setNotice(''); setError(''); invalidate()
+  }
+  function fillSampleFields() {
+    if (busy || review) return ''
+    const next = fillOfflineSample(draft,demoEconomics)
+    if (next === draft) return 'All applicable fields already have values.'
+    setDraft(next)
+    const localQuestions = (d:Draft) => new Set([...Object.keys(validate(d.values)),...fieldIssues(d).map(q=>q.field_id)])
+    const before = localQuestions(draft), remaining = localQuestions(next)
+    setQuestions(current=>current.filter(q=>!before.has(q.field_id) || remaining.has(q.field_id)))
+    setIssues(current=>Object.keys(current).length ? validate(next.values) : current)
+    setError('')
+    return 'Filled empty fields with the local multipack example. Review the details before continuing.'
   }
 
   async function extract(text: string) {
@@ -356,10 +382,10 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
         if (busy) return
         setApproved(false); setError('')
         setDraft(current => ({ ...current, confirmed: current.confirmed.includes(key) ? current.confirmed.filter(k => k !== key) : [...current.confirmed, key] }))
-      }} onSample={loadSample} onExtract={extract} onReview={prepare} onRun={startRun} onReplay={openReplay} review={review} candidates={candidates} chosen={chosen} onToggle={id => {
+      }} onSample={loadSample} onFillSample={fillSampleFields} onExtract={extract} onReview={prepare} onRun={startRun} onReplay={openReplay} review={review} candidates={candidates} chosen={chosen} onToggle={id => {
         setApproved(false); setChosen(current => current.includes(id) ? current.filter(x => x !== id) : [...current, id])
       }} candidateEdits={candidateEdits} onCandidateEdit={(id, value) => { setApproved(false); setCandidateEdits(current => ({ ...current, [id]: value })) }} onRevalidate={revalidate} approved={approved} onApprove={setApproved} busy={busy} issues={issues} error={error} notice={notice} replayLabel="Open demo arena" questions={questions} onAnswer={answer} onCampaignField={editCampaign} onCampaignRows={editRows} /></div>
-      {active && screen === 'arena' && report && <Arena report={report} result={result} baseline={baseline} scenario={scenario} changeScenario={s => changeScope(s, planId)} planId={planId} changePlan={p => changeScope(scenario, p)} day={day} changeDay={changeDay} selected={selected} select={selectShopper} trace={trace} traceStatus={traceStatus} light={false} onVerdict={() => go('verdict')} />}
+      {active && (!playVisit || preparedVisit === playVisit) && screen === 'arena' && report && <Arena autoPlay={startReplayPlaying} report={report} result={result} baseline={baseline} scenario={scenario} changeScenario={s => changeScope(s, planId)} planId={planId} changePlan={p => changeScope(scenario, p)} day={day} changeDay={changeDay} selected={selected} select={selectShopper} trace={trace} traceStatus={traceStatus} light={false} onVerdict={() => go('verdict')} />}
       {screen === 'arena' && !report && <section className="panel pending-panel" aria-live="polite">
         <h1>{runTitle}</h1><p>{pollProblem || run?.error?.message || (runFailed ? 'No completed report was returned. Return to input to review the campaign and try again.' : run?.progress ? `${run.progress.completed} of ${run.progress.total} ${run.progress.unit}` : 'You can leave this screen and return while the run is in progress.')}</p>
         {!pollProblem && !runFailed && run?.progress && <progress max={run.progress.total} value={run.progress.completed}/>}

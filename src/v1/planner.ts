@@ -1,4 +1,5 @@
-import type { Edits, Fields } from './client'
+import type { Edits, Fields, Review } from './client'
+import { fillBlank, shiftedDay } from '../form-sample'
 
 type Control = {key:string; label:string; type?:'number'|'date'|'select'; options?:string[]; min?:number; step?:string}
 export const controls:Control[] = [
@@ -15,6 +16,31 @@ export const controls:Control[] = [
   {key:'offer.eligibility',label:'Offer eligibility',type:'select',options:['all','new_only','members','segment_hint']},
 ]
 export const humanize=(value:string)=>value.replaceAll('_',' ').replace(/^./,s=>s.toUpperCase())
+// These are the two named v1 catalog examples. Once a review exists, its returned choices take precedence.
+export const sampleProducts = [
+  {choice_id:'cellox-tissue-shopee',label:'Cellox toilet tissue',pack_label:'Reference pack',channel:'shopee'},
+  {choice_id:'demo-tissue-12-shopee',label:'Synthetic demo toilet tissue',pack_label:'12 rolls',channel:'shopee'},
+]
+export function fillV1Sample(form:Record<string,string>,review:Review|null,preferredId=sampleProducts[0].choice_id) {
+  const catalog = review?.supported_product_choices ?? sampleProducts
+  const hint = form.product_hint?.trim().toLowerCase()
+  const matches = catalog.filter(p=>sampleProducts.some(s=>s.choice_id===p.choice_id) && (!hint || p.label.toLowerCase().includes(hint))
+      && (!form.pack_hint?.trim() || p.pack_label.toLowerCase()===form.pack_hint.trim().toLowerCase())
+      && (!form.channel?.trim() || p.channel.toLowerCase()===form.channel.trim().toLowerCase()))
+  const selected = form.product_choice_id ? catalog.find(p=>p.choice_id===form.product_choice_id)
+    : matches.length===1 || (!hint && !form.pack_hint?.trim()) ? matches.find(p=>p.choice_id===preferredId) ?? matches[0] : undefined
+  const synthetic = selected?.choice_id==='demo-tissue-12-shopee'
+  const first = form.start_date || shiftedDay(form.end_date,-28) || '2026-11-07'
+  const kind = form['offer.kind'] || (synthetic || form['offer.unit']==='THB' ? 'voucher' : 'percent_off')
+  const unit = form['offer.unit'] || (kind==='percent_off' ? 'pct' : 'THB')
+  return fillBlank(form,{
+    product_choice_id:selected?.choice_id, product_hint:synthetic ? 'toilet tissue' : selected?.label,pack_hint:selected?.pack_label,channel:selected?.channel ?? 'shopee',
+    objective:'incremental_profit',audience_hint:'all',budget_thb:synthetic ? '1000' : '500000',
+    start_date:first,end_date:shiftedDay(first,28),
+    'offer.kind':kind,'offer.unit':unit,'offer.value':unit==='pct' && !synthetic ? '40' : '10',
+    'offer.eligibility':'all','offer.cap_per_user':selected?.choice_id==='cellox-tissue-shopee' ? '2' : undefined,
+  })
+}
 export function toForm(fields:Fields):Record<string,string> {
   return Object.fromEntries(Object.entries(fields).flatMap(([key,value])=>key==='offer'
     ? Object.entries(value).map(([k,v])=>['offer.'+k,String(v)]) : [[key,String(value)]]))
