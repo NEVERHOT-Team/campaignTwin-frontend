@@ -30,7 +30,12 @@ test('a THB 2 to 7 fee change requires a fresh approval and preserves both evalu
   assert.ok(response.ok)
   const schema = await response.json()
   const content = schema.paths[directory.create_review].post.requestBody.content['application/json']
-  const first = await api.create(content.examples.sellerMarginCheck.value)
+  const { feeDemo, formFromFields, formFields } = await vite.ssrLoadModule('/src/v2/seller-fields.ts')
+  const fields = formFields(formFromFields(feeDemo))
+  const { channel, ...publishedFields } = fields
+  assert.equal(channel, 'shopee')
+  assert.deepEqual(publishedFields, content.examples.sellerMarginCheck.value.fields)
+  const first = await api.create({ fields })
   assert.equal(first.review.status, 'ready_for_approval')
   let initialRun
   let initialSubmission

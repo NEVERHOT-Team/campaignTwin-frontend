@@ -165,7 +165,7 @@ export interface paths {
         };
         /**
          * Poll the run
-         * @description The local synthetic evaluator completes during submission.
+         * @description New Cellox runs queue the arena evaluation after admission.
          *     Poll the submitted run at the indicated interval while queued or
          *     running. Progress is a nondecreasing fraction for this run. Done
          *     means its immutable report is available. Error is a terminal run
@@ -234,7 +234,10 @@ export interface paths {
          *     pinned input versions. Scenario results compare the approved campaign
          *     to a paired no-campaign baseline with shared seeds and scope.
          *     Evaluator output supplies all numbers and decision codes. Agent
-         *     commentary may summarize them. A completed run can have missing
+         *     commentary may summarize them. Arena reports also expose each strategy and
+         *     its paired weekly results, scenario outcomes, ranking and event counts.
+         *     The competitive outlook links historical campaign examples for the user
+         *     and the highest-ranked plan. A completed run can have missing
          *     metrics or insufficient decision evidence. Execution or report
          *     generation failure instead leaves the run in error.
          */
@@ -367,6 +370,10 @@ export interface components {
         /** @description Requested sales platform. Unsupported platforms stay visible in review and block simulation. */
         RequestedChannel: string;
         /** @enum {string} */
+        CampaignEvent: "1.1" | "2.2" | "3.3" | "4.4" | "5.5" | "6.6" | "7.7" | "8.8" | "9.9" | "10.10" | "11.11" | "12.12" | "payday" | "none";
+        /** @description Campaign channels across which the strategy allocates its budget. The listing's sales platform is recorded separately in channel. */
+        CampaignChannels: ("shopee" | "line")[];
+        /** @enum {string} */
         Channel: "shopee" | "lazada" | "tiktok_shop" | "line" | "meta" | "google" | "offline";
         /**
          * @description Planner intent. Approval requires verified measurement support for the selected objective.
@@ -407,6 +414,8 @@ export interface components {
             /** @description Optional selection of an exact, server-supplied product choice. */
             product_choice_id?: components["schemas"]["Text"];
             channel?: components["schemas"]["RequestedChannel"];
+            channels?: components["schemas"]["CampaignChannels"];
+            event?: components["schemas"]["CampaignEvent"];
             offer?: components["schemas"]["OfferInput"];
             audience_hint?: components["schemas"]["Text"];
             objective?: components["schemas"]["Objective"];
@@ -440,6 +449,8 @@ export interface components {
             pack_hint?: string | null;
             product_choice_id?: string | null;
             channel?: components["schemas"]["RequestedChannel"] | null;
+            channels?: components["schemas"]["CampaignChannels"] | null;
+            event?: components["schemas"]["CampaignEvent"] | null;
             offer?: components["schemas"]["OfferInput"] | null;
             audience_hint?: string | null;
             objective?: components["schemas"]["Objective"] | null;
@@ -536,6 +547,7 @@ export interface components {
          *     requires evidence covering that charge and scope.
          */
         Costs: {
+            margin_floor_pct?: components["schemas"]["CostEvidence"];
             regular_price?: components["schemas"]["CostEvidence"];
             cogs?: components["schemas"]["CostEvidence"];
             channel_commission?: components["schemas"]["CostEvidence"];
@@ -581,7 +593,7 @@ export interface components {
             reason: null | "provider_unavailable" | "timeout" | "invalid_response";
         };
         /** @enum {string} */
-        FactOrigin: "planner" | "planner_confirmed_extraction" | "data" | "default";
+        FactOrigin: "planner" | "planner_confirmed_extraction" | "data" | "default" | "derived";
         /** @description Local market dates with an exclusive end. */
         DateWindow: {
             /** Format: date */
@@ -802,6 +814,100 @@ export interface components {
                 unavailable_reason: string | null;
             }[];
         };
+        ArenaPlanMetrics: {
+            /** @description Net incremental profit over the paired baseline, in THB. */
+            incremental_profit: components["schemas"]["Percentiles"];
+            /** @description Incremental profit divided by campaign spend, as a ratio. */
+            iroi: components["schemas"]["Percentiles"] | null;
+            /** @description Incremental revenue divided by campaign spend, as a ratio. */
+            iroas: components["schemas"]["Percentiles"] | null;
+            /** @description Fraction of discounted units estimated to sell without the offer. */
+            leakage: components["schemas"]["Percentiles"] | null;
+            /** @enum {unknown} */
+            leakage_label: "data" | "unavailable";
+            new_buyers: components["schemas"]["Percentiles"];
+            p_loss: components["schemas"]["Fraction"];
+            p_hit_target: components["schemas"]["Fraction"] | null;
+        };
+        ArenaReportPlan: {
+            plan_id: components["schemas"]["Text"];
+            name: components["schemas"]["Text"];
+            /** @enum {unknown} */
+            role: "user" | "ai" | "baseline";
+            discount_pct: number;
+            mechanic: string;
+            scenarios: {
+                [key: string]: components["schemas"]["ArenaPlanMetrics"];
+            };
+        };
+        ArenaRankingRow: {
+            plan_id: components["schemas"]["Text"];
+            rank: number | null;
+            /** @description Likelihood-weighted incremental profit in THB across S1–S3. S4 is a stress test. */
+            weighted_profit: number;
+            rank_reason: components["schemas"]["Text"];
+        };
+        ArenaWeeklyRow: {
+            week: number;
+            /** @description Weekly gross sales in THB. */
+            sales: number;
+            /** @description Weekly gross profit in THB. */
+            profit: number;
+            buyers: number;
+            from_rival: number;
+            waiting: number;
+        };
+        ArenaBreakpoint: {
+            week: number | null;
+            /** @description The evaluator uses never_profitable when cumulative incremental profit never crossed above zero. */
+            cause: string | null;
+            peak_week: number | null;
+        };
+        ArenaScenarioEvents: {
+            rival_reactions: number;
+            own_rule_firings: number;
+            rival_notices: number;
+        };
+        ArenaRivalEstimate: {
+            /** @enum {unknown} */
+            reaction: "none" | "match" | "undercut" | "non_price";
+            likelihood: components["schemas"]["Fraction"];
+            ci_low: components["schemas"]["Fraction"];
+            ci_high: components["schemas"]["Fraction"];
+            /** @description Discount depth ceiling in percentage points. */
+            depth: number;
+            delay_weeks: number;
+            duration_weeks: number;
+            evidence_ids: string[];
+        };
+        ArenaRivalOutlook: {
+            rival: string;
+            display_name: string;
+            rival_score: number;
+            scenarios: {
+                [key: string]: components["schemas"]["ArenaRivalEstimate"];
+            };
+        };
+        ArenaSimilarCampaign: {
+            campaign_id: string;
+            brand: string;
+            brand_name: string;
+            platform: string;
+            mechanic: string;
+            discount_depth: number;
+            description: string;
+            /** Format: uri */
+            source_url: string;
+            confidence: string;
+            similarity: number;
+        };
+        ArenaPlanOutlook: {
+            plan_id: components["schemas"]["Text"];
+            /** @description Category prior provenance */
+            prior_label: string;
+            rivals: components["schemas"]["ArenaRivalOutlook"][];
+            similar_campaigns: components["schemas"]["ArenaSimilarCampaign"][];
+        };
         /**
          * @description Include each evaluated scenario once, with each policy-required
          *     metric present exactly once even when unavailable. Percentiles are
@@ -830,7 +936,46 @@ export interface components {
             }[];
             decision: components["schemas"]["Decision"];
             commentary?: components["schemas"]["Text"];
-        };
+            /** @enum {string} */
+            evaluation_engine?: "arena" | "synthetic_fallback";
+            /** @description Why the run used the internal fallback evaluator. */
+            fallback_reason?: string;
+            /** @description Effective spec paths mapped to their evidence source. */
+            field_sources?: {
+                [key: string]: "user" | "data" | "default" | "derived";
+            };
+            /** @description All strategies including the paired baseline. A plan has an S4 entry if the arena evaluated its red-team stress scenario. */
+            plans?: components["schemas"]["ArenaReportPlan"][];
+            /** @description Arena order with the baseline comparator last. Its rank is null. */
+            ranking?: components["schemas"]["ArenaRankingRow"][];
+            /** @description Weekly medians across seeds, keyed by plan ID then scenario. The baseline contains the paired no-campaign trajectory. */
+            weekly?: {
+                [key: string]: {
+                    [key: string]: components["schemas"]["ArenaWeeklyRow"][];
+                };
+            };
+            /** @description Loss crossings and peak weeks keyed by plan ID then scenario. */
+            breakpoints?: {
+                [key: string]: {
+                    [key: string]: components["schemas"]["ArenaBreakpoint"];
+                };
+            };
+            /** @description Statements derived from the evaluated run's results. */
+            risks?: string[];
+            /** @description Middle-seed event counts summed across plans in each evaluated scenario. A grouped rival action counts once. */
+            events?: {
+                [key: string]: components["schemas"]["ArenaScenarioEvents"];
+            };
+            competitive_outlook?: {
+                user_plan: components["schemas"]["ArenaPlanOutlook"];
+                top_ranked_plan: components["schemas"]["ArenaPlanOutlook"];
+            };
+            customer_voice?: {
+                /** @constant */
+                status: "unavailable";
+                reason: string;
+            };
+        } & (unknown & unknown);
         Error: {
             /** @enum {string} */
             code: "invalid_request" | "not_found" | "stale_review" | "incomplete_review" | "submission_id_conflict" | "approval_stale" | "retry_not_allowed" | "retry_already_submitted" | "report_pending" | "run_failed";

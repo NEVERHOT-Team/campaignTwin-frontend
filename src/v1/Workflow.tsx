@@ -16,7 +16,7 @@ type Turn = { speaker: 'user' | 'assistant'; text: string }
 type RunLink = { id: string; url: string }
 type Pending = { id: string; key: string }
 type Saved = { reviewId: string; turns: Turn[]; receipt: Approval | null; run: RunLink | null; pending: Pending | null }
-const firstKeys = ['product_hint','pack_hint','product_choice_id','channel','audience_hint','objective','budget_thb','start_date','end_date']
+const firstKeys = ['product_hint','pack_hint','product_choice_id','channel','channels','event','audience_hint','objective','budget_thb','start_date','end_date']
 const offerKeys = ['offer.kind','offer.value','offer.unit']
 const restrictionKeys = ['offer.min_spend_thb','offer.cap_per_user','offer.eligibility']
 const demoBrief = 'Rehearse Cellox toilet tissue on Shopee for all buyers. Target incremental profit with a 500000 THB budget and 40% off from 2026-11-07 until 2026-12-05.'
@@ -150,11 +150,16 @@ export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?
   }
   function fillSample() {
     if (locked || consent || receipt) return
-    const confirmedFields = new Set(review?.candidates.filter(c=>confirmed.includes(c.candidate_id)).map(c=>fieldKey(c.field).split('.')[0]))
-    const additions = Object.entries(fillV1Sample(form,review)).filter(([key,value])=>form[key]!==value && !confirmedFields.has(key.split('.')[0]))
+    const pendingFields = new Set(review?.candidates.map(c=>fieldKey(c.field).split('.')[0]))
+    // Leave a pending catalog choice and its dependent fields for review together.
+    const hasPendingCatalog = ['product_hint','pack_hint','product_choice_id','channel'].some(key=>pendingFields.has(key))
+    const additions = Object.entries(fillV1Sample(form,review))
+      .filter(([key])=>!hasPendingCatalog || !['product_hint','pack_hint','product_choice_id','channel','offer'].includes(key.split('.')[0])).filter(([key,value])=>form[key]!==value && !pendingFields.has(key.split('.')[0]))
     if (!additions.length) {setSampleNotice('All applicable fields already have values.');return}
     setForm({...form,...Object.fromEntries(additions)})
-    setSampleNotice('Filled empty fields with a local example. Review the details before saving.')
+    setSampleNotice(Object.values(form).some(value=>value.trim())
+      ? 'Filled empty fields with compatible sample values. Review the details before saving.'
+      : 'Loaded the Cellox reference-pack promotion on Shopee. Review the 40% offer and subsidy budget before saving.')
     setError('')
   }
   function handle(e:unknown) {
@@ -182,15 +187,15 @@ export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?
     setError(''); setNotice('')
     const invalid = kind === 'send' && review ? '' : issue(fields)
     if (invalid) { setError(invalid); return }
-    if (!review && !Object.keys(fields).length && !text) { setError('Write a brief or enter a campaign detail.'); return }
+    if (!review && !Object.keys(fields).length && (kind==='save' || !text)) { setError('Send a brief in chat or enter a campaign detail.'); return }
     if (kind === 'send' && !text) return
     setBusy(kind)
     try {
       let next:Review
-      if (!review) next = await api.create(text,fields)
+      if (!review) next = await api.create(kind==='send' ? text : '',fields)
       else if (kind === 'send') next = await api.answer(review,text)
       else next = await api.revise(review,edits,confirmations)
-      const conversational = kind === 'send' || (!review && Boolean(text))
+      const conversational = kind === 'send'
       const nextQuestion = activeQuestion(next)
       const waitingOnSameField = conversational && question && question.field === nextQuestion?.field
       const previousPrompt = review && chatPrompt(review)
@@ -275,7 +280,10 @@ export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?
     const origin = provenance === 'data' ? 'From catalog' : provenance === 'default' ? 'Server assumption' : provenance === 'planner_confirmed_extraction' ? 'Confirmed from chat' : ''
     const changed = (form[key] ?? '') !== (review ? toForm(review.facts)[key] ?? '' : '')
     return <label key={key} className="intake-field" htmlFor={'v1-'+key}><span id={'v1-label-'+key}>{key==='product_choice_id' && !review ? 'Example product and pack' : c.label}</span>
-      {c.type === 'select' ? <select className="intake-control" id={'v1-'+key} aria-labelledby={'v1-label-'+key} value={form[key] ?? ''} onChange={e => edit(key,e.target.value)}>
+      {c.type === 'multi' ? <select multiple className="intake-control" id={'v1-'+key} value={(form[key] ?? '').split(',').filter(Boolean)}
+        aria-labelledby={'v1-label-'+key} onChange={e=>edit(key,Array.from(e.target.selectedOptions,option=>option.value).join(','))}>
+        {c.options?.map(option=><option key={option} value={option}>{humanize(option)}</option>)}
+      </select> : c.type === 'select' ? <select className="intake-control" id={'v1-'+key} aria-labelledby={'v1-label-'+key} value={form[key] ?? ''} onChange={e => edit(key,e.target.value)}>
         <option value="">Choose…</option>
         {key==='product_choice_id' && form[key] && !productChoices.some(p=>p.choice_id===form[key]) &&
           <option disabled value={form[key]}>Unavailable catalog choice · {form[key]}</option>}

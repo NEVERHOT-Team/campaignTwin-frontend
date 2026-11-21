@@ -296,3 +296,16 @@ test('live strategy comparisons keep losses, unpaired scenarios and approval bou
   assert.ok(liveStrategyDifference(original,other,'S4',labels).outcomes.every(o=>o.difference==null))
   assert.equal(liveStrategyDifference(original,{...other,input:{...other.input,approval_id:'previous'}},'S1',labels),undefined)
 })
+
+
+test('the v1 sample completes compatible offer fields and keeps saved campaign metadata', async () => {
+  const { fillV1Sample, toFields, toForm, changes } = await vite.ssrLoadModule('/src/v1/planner.ts')
+  const { sampleOffer } = await vite.ssrLoadModule('/src/form-sample.ts')
+  const fields = { channels: ['shopee', 'line'], event: '11.11' }
+  const filled = toFields(fillV1Sample({ ...toForm(fields), 'offer.value': '12' }, null))
+  assert.deepEqual(filled.offer, { kind: 'percent_off', value: 12, unit: 'pct', eligibility: 'all' })
+  assert.deepEqual(filled.channels, fields.channels)
+  assert.equal(filled.event, fields.event)
+  assert.deepEqual(changes(fields, toFields(toForm(fields))), {})
+  assert.deepEqual(sampleOffer({ 'offer.kind': 'voucher', 'offer.unit': 'pct' }, { kind: 'voucher', unit: 'THB', value: '10' }), {})
+})

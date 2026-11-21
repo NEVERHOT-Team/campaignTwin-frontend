@@ -12,7 +12,7 @@ The Vercel frontend calls a separate FastAPI service on Render. A configured bui
 
 ## 2. Get an HTTPS API origin
 
-The team’s Render origin is `https://campaigntwin-backend.onrender.com`. Verify `GET /api/health` and the v1 review routes in `/openapi.json`.
+The team’s Render origin is `https://campaigntwin-backend.onrender.com`. Verify `GET /api/health` and the v1 review routes in `/openapi.json`. The backend’s Render Docker configuration serves both versions. Check `GET /api/v2` before using **Debug v2**.
 
 Vercel can import the backend repository as a second project and run FastAPI. That path needs external PostgreSQL and a deployable Python function bundle. This backend includes pandas, PyArrow and scikit-learn, and its default JSON store writes to the local filesystem. Run a function build and verify persistence across deployments before choosing that host. The frontend always connects through the same public API origin regardless of which service hosts FastAPI. [FastAPI on Vercel](https://vercel.com/docs/frameworks/backend/fastapi) · [Function limits](https://vercel.com/docs/functions/limitations)
 
@@ -24,8 +24,8 @@ For a new service, one supported layout is a **Render Python web service** for t
    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/init.sql
    ```
 
-   The script creates the v1 workspace for reviews, approvals and runs.
-2. Create **New → Web Service** in Render. Connect **NEVERHOT-Team/campaignTwin-backend**, select **dev** (or a release containing the v1 routes), and use the repository root. Set the language to **Python 3**, select a supported Python 3.11+ patch, and enter these settings. [Render Python version configuration](https://render.com/docs/python-version)
+   The script creates the v1 workspace for reviews, approvals and runs. If you use PostgreSQL with **Debug v2**, also apply `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/seller_v2.sql` and start the combined service with `api.v2.app:app`.
+2. For a native Python web service, create **New → Web Service** in Render. Connect **NEVERHOT-Team/campaignTwin-backend**, select **dev** (or a release containing the v1 routes), and use the repository root. Set the language to **Python 3**, select a supported Python 3.11+ patch, and enter these settings. [Render Python version configuration](https://render.com/docs/python-version)
 
    | Setting | Value |
    | --- | --- |

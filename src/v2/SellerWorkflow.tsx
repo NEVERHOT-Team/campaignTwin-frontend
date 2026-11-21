@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { WorkspaceHeader } from '../WorkspaceHeader'
 import { RunApproval } from '../RunApproval'
 import { ProductGoods, catalogPhoto } from '../ProductGoods'
-import { fillBlank, shiftedDay } from '../form-sample'
+import { fillBlank, sampleOffer, shiftedDay } from '../form-sample'
 import { scrollToWorkspaceStart } from '../workspace-motion'
 import { createV2Client, V2ApiError, type Fields, type Session } from './client'
 import SellerFields from './SellerFields'
@@ -113,23 +113,29 @@ export default function SellerWorkflow({onOpenV1}:Props) {
   function fillDemo() {
     const sample=formFromFields(feeDemo)
     const chosen=form.product_choice_id?.trim()
+    const productHint=form.product_hint?.trim().toLowerCase()
+    const packHint=form.pack_hint?.trim().toLowerCase()
     const matchesProduct=(!chosen || chosen===sample.product_choice_id)
       && (!form.channel?.trim() || form.channel.trim().toLowerCase()===sample.channel)
-      && (!!chosen || !(form.product_hint?.trim() || form.pack_hint?.trim()))
-    const customOffer=Object.entries(form).some(([k,v])=>k.startsWith('offer.') && v.trim() && v.trim()!==sample[k])
-    const pending=new Set(review?.candidates.map(c=>c.field.split('/').at(-1)))
-    const additions=Object.fromEntries(Object.entries(sample).filter(([key])=>{
+      && (!!chosen || (!productHint || ['synthetic demo toilet tissue','synthetic tissue','demo toilet tissue'].includes(productHint))
+        && (!packHint || packHint==='12 rolls'))
+    const offer = matchesProduct ? sampleOffer(form,{kind:'voucher',unit:'THB',value:'10'}) : {}
+    const pending=new Set(review?.candidates.map(c=>c.field.split('/')[2]))
+    const pendingCatalog=['product_hint','pack_hint','product_choice_id','channel'].some(key=>pending.has(key))
+    const additions=Object.fromEntries(Object.entries({...sample,...offer}).filter(([key])=>{
       if (pending.has(key.split('.')[0])) return false
-      if (key.startsWith('offer.')) return matchesProduct && !customOffer
-      if (['product_choice_id','channel','order_fee_thb','discount_response'].includes(key)) return matchesProduct
+      if (key.startsWith('offer.')) return !pendingCatalog && 'offer.kind' in offer
+      if (['product_choice_id','channel','order_fee_thb','discount_response'].includes(key)) return !pendingCatalog && matchesProduct
       return true
     }))
-    if (form.start_date && !form.end_date) additions.end_date=shiftedDay(form.start_date,7) ?? sample.end_date
-    if (form.end_date && !form.start_date) additions.start_date=shiftedDay(form.end_date,-7) ?? sample.start_date
+    if (!pending.has('end_date') && form.start_date && !form.end_date) additions.end_date=shiftedDay(form.start_date,7) ?? ''
+    if (!pending.has('start_date') && form.end_date && !form.start_date) additions.start_date=shiftedDay(form.end_date,-7) ?? ''
     const next=fillBlank(form,additions)
     if (next===form) {setNotice('All applicable demo fields already have values.');return}
     setForm(next);setConsent(false);setIssue('')
-    setNotice('Filled empty fields with demo values. Review them before saving.')
+    setNotice(Object.values(form).some(value=>value.trim())
+      ? 'Filled empty fields with compatible sample values. Review the details before saving.'
+      : 'Loaded a 12-roll tissue voucher example. Compare the seller verdict at ฿2 and ฿7 per kept order.')
   }
   async function handle(error:unknown) {
     setIssue(message(error))

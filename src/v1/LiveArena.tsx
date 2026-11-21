@@ -76,7 +76,7 @@ function liveWorkflow(report: Report, review: Review | undefined, plan: PlanResu
   const originalScope = report.scenario_results.find(s => s.scenario === scene?.scenario) ?? original?.scenario_results.find(s => s.scenario === scene?.scenario)
   const originalPolicy = original?.input.evaluation ?? review?.evaluation
   const target = originalPolicy?.goal_target
-  const origins = { planner:'Planner entry', planner_confirmed_extraction:'Confirmed by planner', data:'Backend data', default:'Policy default' }
+  const origins = { planner:'Planner entry', planner_confirmed_extraction:'Confirmed by planner', data:'Backend data', derived:'Derived by backend', default:'Policy default' }
   function reviewed(field: string, value: string | undefined) {
     if (!value) return undefined
     const source = review?.fact_origins['/facts/' + field]
@@ -205,6 +205,13 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
   const eligibleHouseholds = eligibleSegments.reduce((sum,s) => sum+s.households,0)
   const comparedPlans = plans.filter(p => p.scenario_results.some(s => s.scenario === scene?.scenario))
   const comparedLabels = comparedPlans.map(p => planLabels[p.role])
+  const engineId = plan?.role === 'original' || plan?.role === 'baseline'
+    ? report.plans?.find(row => row.role === (plan.role === 'original' ? 'user' : 'baseline'))?.plan_id
+    : report.evaluation_engine === 'arena' ? plan?.input.offer?.offer_id.replace(/^arena-/, '') : undefined
+  const weekly = plan && scene
+    ? report.weekly?.[plan.input.plan_id]?.[scene.scenario]
+      ?? (engineId ? report.weekly?.[engineId]?.[scene.scenario] : undefined)
+    : undefined
 
 
   return <div className="rehearsal-arena live-market-arena">
@@ -247,7 +254,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
                   <strong>{s.name === s.name.toLowerCase() ? humanize(s.name) : s.name}</strong>
                   <span>{numbers.format(s.households)} households · {percentage.format(s.weekly_purchase_probability)} weekly purchase probability</span>
                 </li>)}</ul>
-                <p className="live-market-note">These probabilities describe the source audience. Weekly nonbuyers include shoppers waiting for another promotion. Counts for either group are unavailable in this run.</p>
+                <p className="live-market-note">These probabilities describe the source audience. Weekly nonbuyers include shoppers waiting for another promotion. The weekly outcomes below the map show the reported waiting counts when available.</p>
               </details></> : <p className="live-market-note">Segment counts unavailable.</p>}
           </>}
         </section>
@@ -257,7 +264,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
         <div className="ra-stage-header"><div><h2 id="live-market-square">{view === 'flow' ? 'Simulation workflow' : 'Market square'}</h2>
           <p>{sourceLabel}{plan && ' · ' + planLabels[plan.role]}</p></div></div>
         {view !== 'flow' && <div className="live-market-replay-note">
-          <p>Map illustration. This run contains aggregate results only. Shopper movement is available in the separate demo replay.</p>
+          <p>Live runs report shopper totals. Open the sample replay to see individual shoppers move.</p>
           {onOpenDemo && <button type="button" className="ra-text-btn" onClick={onOpenDemo}>Open shopper replay</button>}
         </div>}
         <ArenaViews onViewChange={setView} twoD={<figure><IllustratedMarket/></figure>}
@@ -269,6 +276,15 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
               const choice = comparedPlans.find(p => planLabels[p.role] === label)
               if (choice) choosePlan(choice.input.plan_id)
             }} onVerdict={onVerdict}/>}/>
+        {!!weekly?.length && <details className="live-rail-detail">
+          <summary>Weekly shopper outcomes · {scene?.scenario}</summary>
+          <div className="live-market-table" role="region" aria-label="Weekly shopper outcomes" tabIndex={0}>
+            <table><thead><tr><th scope="col">Week</th><th scope="col">Buyers</th><th scope="col">From rival</th><th scope="col">Waiting</th></tr></thead>
+              <tbody>{weekly.map(row=><tr key={row.week}><th scope="row">{row.week}</th><td>{numbers.format(row.buyers)}</td>
+                <td>{numbers.format(row.from_rival)}</td><td>{numbers.format(row.waiting)}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </details>}
         <div className="live-market-basis">
           <p>Evaluation window · {interval(report.measurement_window)}</p>
           {input && <p>{input.seeds.length} paired seeds</p>}

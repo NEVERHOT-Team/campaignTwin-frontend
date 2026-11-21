@@ -12,6 +12,18 @@ export function shiftedDay(date:string|undefined, days:number) {
   if (Number.isFinite(stamp)) return new Date(stamp+days*86400000).toISOString().slice(0,10)
 }
 
+export function sampleOffer(form:Record<string,string>, defaults:{kind:string; unit:string; value:string}, percentageVoucher = false) {
+  const kind = form['offer.kind'] || (form['offer.unit'] === 'THB' ? 'voucher'
+    : form['offer.unit'] === 'pct' ? 'percent_off' : defaults.kind)
+  const unit = form['offer.unit'] || (kind === 'percent_off' ? 'pct' : 'THB')
+  if (!(kind === 'percent_off' && unit === 'pct' || kind === 'voucher' && (unit === 'THB' || percentageVoucher && unit === 'pct')))
+    return {}
+  return {
+    'offer.kind':kind, 'offer.unit':unit,
+    'offer.value':kind === defaults.kind && unit === defaults.unit ? defaults.value : '10',
+  }
+}
+
 export function fillOfflineSample(draft:Draft, economics:Partial<Values>):Draft {
   const values = fillBlank(draft.values,{brand:'Crunchy Co.',discount_pct:'15',total_budget_thb:'20000',...economics})
   const campaign = draft.campaign
