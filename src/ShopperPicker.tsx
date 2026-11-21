@@ -38,18 +38,26 @@ export function ShopperPicker({ agents, pool, poolName, selected, switchers, onC
   }
 
   return <div className="ra-picker">
-    {shopper ? <div className="ra-person">
-      <strong>{shopperName(shopper.shopper_id)}</strong>
-      <span>{brandLabels[shopper.brand]}</span>
-    </div> : <p>Select a shopper on the map to see their decisions.</p>}
+    {shopper ? <>
+      <div className="ra-person">
+        <strong>{shopperName(shopper.shopper_id)}</strong>
+        <span>{brandLabels[shopper.brand]}</span>
+      </div>
+      {index >= 0 && <div className="ra-paging" aria-label={poolName}>
+        <button className="ra-text-btn" type="button" disabled={pool.length <= 1} aria-label="Previous shopper"
+          onClick={() => onChoose(pool[(index + pool.length - 1) % pool.length].shopper_id)}>Previous</button>
+        <span>{index + 1} / {pool.length}</span>
+        <button className="ra-text-btn" type="button" disabled={pool.length <= 1} aria-label="Next shopper"
+          onClick={() => onChoose(pool[(index + 1) % pool.length].shopper_id)}>Next</button>
+      </div>}
+    </> : <p>Pick someone on the map to inspect that day’s decision.</p>}
     <div className="ra-picker-actions">
-      {(!shopper || (switchers.length > 0 && poolName !== 'changed preference')) && <button className="ra-btn" type="button" disabled={!agents.length}
+      {!shopper && <button className="ra-btn" type="button" disabled={!agents.length}
         onClick={() => switchers.length ? onSwitchers() : onFind(agents[0].shopper_id)}>
         {switchers.length ? 'Inspect a switcher' : 'Inspect a shopper'}
       </button>}
       <button type="button" ref={searchTrigger} className="ra-text-btn" aria-expanded={searching}
-        onClick={() => { if (searching) closeSearch(); else setSearching(true) }}>Find by ID</button>
-      {shopper && <button type="button" className="ra-text-btn" aria-label="Clear shopper selection" onClick={onClear}>Clear</button>}
+        onClick={() => { if (searching) closeSearch(); else setSearching(true) }}>{shopper ? 'Change shopper' : 'Find by ID'}</button>
     </div>
     {searching && <div className="ra-find">
       <label htmlFor="ra-shopper-search">Shopper ID</label>
@@ -59,13 +67,10 @@ export function ShopperPicker({ agents, pool, poolName, selected, switchers, onC
         <ul>{matches.slice(0, 4).map(a => <li key={a.shopper_id}>
           <button type="button" onClick={() => chooseMatch(a.shopper_id)}>{shopperName(a.shopper_id)}</button>
         </li>)}</ul></>}
-    </div>}
-    {shopper && index >= 0 && <div className="ra-paging">
-      <span>{index + 1} of {pool.length} · {poolName}</span>
-      <div><button className="ra-text-btn" type="button" disabled={pool.length <= 1}
-        aria-label="Previous shopper" onClick={() => onChoose(pool[(index + pool.length - 1) % pool.length].shopper_id)}>Previous</button>
-        <button className="ra-text-btn" type="button" disabled={pool.length <= 1}
-          aria-label="Next shopper" onClick={() => onChoose(pool[(index + 1) % pool.length].shopper_id)}>Next</button></div>
+      {shopper && <div className="ra-picker-actions">
+        {switchers.length > 0 && poolName !== 'changed preference' && <button type="button" className="ra-text-btn" onClick={() => { closeSearch(); onSwitchers() }}>Inspect a switcher</button>}
+        <button type="button" className="ra-text-btn" aria-label="Clear shopper selection" onClick={() => { closeSearch(); onClear() }}>Clear</button>
+      </div>}
     </div>}
   </div>
 }

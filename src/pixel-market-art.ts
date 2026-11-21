@@ -26,7 +26,7 @@ function random(seed: number) {
 }
 
 const palettes = {
-  ours:   ['#345378','#487eb5','#78a8da','#bfd7e9'],
+  ours:   ['#765B35','#C69A53','#E2AD46','#FFE8BA'],
   market: ['#63506f','#8f72b0','#bba2d1','#e2d3e7'],
   rival:  ['#924e3c','#c96b4d','#e59370','#f3cfad'],
   waiting:['#526452','#748775','#a0ae8b','#dce0c7'],
@@ -106,7 +106,7 @@ function shop(c:Ink,x:number,y:number,brand:Brand,label:string) {
   fill(c,edge,[3,15,96,2],[1,17,100,2],[-1,19,104,9],[-2,28,106,4])
   for(let i=0;i<10;i++){
     const left=i*10+1, colored=i%2===0
-    const top=colored?lit:'#f8ecd4', body=colored?cloth:'#e7d9be', hem=colored?edge:'#bcab91'
+    const top=colored?lit:brand==='ours'?light:'#f8ecd4', body=colored?cloth:'#e7d9be', hem=colored?edge:'#bcab91'
     fill(c,top,[left+2,16,10,2],[left+1,18,10,2],[left,20,10,2])
     fill(c,body,[left-1,22,10,7]);fill(c,hem,[left-1,29,10,3],[left,32,8,1])
   }
@@ -135,7 +135,7 @@ function shop(c:Ink,x:number,y:number,brand:Brand,label:string) {
     crate(c,101,45,12,8,3);crate(c,101,51,13,8,2)
     fill(c,'#668058',[-8,36,4,10],[-11,39,4,5],[-5,37,4,4])
   } else if(brand==='ours'){
-    fill(c,'#657c82',[103,46,10,12],[112,50,4,8]);fill(c,'#9eb6b0',[104,47,7,3],[104,52,7,2])
+    fill(c,edge,[103,46,10,12],[112,50,4,8]);fill(c,cloth,[104,47,7,3],[104,52,7,2])
   }
   c.restore()
 }

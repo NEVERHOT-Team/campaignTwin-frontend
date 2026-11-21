@@ -5,6 +5,9 @@ export type Fields = S['PlannerFields']
 export type Edits = S['PlannerEdits']
 export type Review = Omit<S['Review'],'facts'> & {facts: Fields}
 export type Report = S['RunReport']
+export type RunInput = Omit<S['RunInput'],'review'> & { review: Review }
+export type BusinessEvaluation = S['BusinessEvaluation']
+export type HistoricalComparison = S['HistoricalComparison']
 export type Approval = S['Approval']
 export type RunState = S['RunState']
 export type ApiProblem = Omit<S['Error'],'current_review'> & {current_review?: Review}
@@ -32,6 +35,7 @@ export function createV1Client(base?: string) {
     return data
   }
   const reviewPath = (r:Review) => reviews + '/' + encodeURIComponent(r.review_id)
+  const runPath = (id:string) => '/api/v1/runs/' + encodeURIComponent(id)
   return {
     origin,
     current: (id:string, signal?:AbortSignal) => request<Review>(reviews+'/'+encodeURIComponent(id),undefined,signal),
@@ -44,5 +48,8 @@ export function createV1Client(base?: string) {
     submit: (body:S['SubmitRun']) => request<S['RunAccepted']>('/api/v1/runs',body),
     status: (url:string, signal:AbortSignal) => request<RunState>(url,undefined,signal),
     report: (url:string, signal:AbortSignal) => request<Report>(url,undefined,signal),
+    runInput: (id:string, signal?:AbortSignal) => request<RunInput>(runPath(id)+'/input',undefined,signal),
+    businessEvaluation: (id:string, signal?:AbortSignal) => request<BusinessEvaluation>(runPath(id)+'/evaluation',undefined,signal),
+    historicalComparison: (id:string, signal?:AbortSignal) => request<HistoricalComparison>(runPath(id)+'/historical-comparison',undefined,signal),
   }
 }

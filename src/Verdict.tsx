@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { money, type Backtest, type Report, type Result } from './model'
+import { ScenarioChoices } from './ScenarioChoices'
+import { attainmentRate, formatResult, percent, pointsComparison, profitComparison } from './verdict-values'
 import './verdict.css'
 
 type VerdictProps = {
@@ -22,27 +24,39 @@ function Disclosure({ title, children }: { title: string; children: ReactNode })
   </details>
 }
 
-function PlanComparison({ plan, result, goalThb, recommended }: {
+function PlanComparison({ plan, result, goalThb, recommended, reference }: {
   plan: Report['plans'][number]
   result?: Result
   goalThb: number
   recommended: boolean
+  reference?: Result
 }) {
   const profit = result?.metrics.incremental_profit_thb
   const roas = result?.metrics.roas
   const attitude = result?.metrics.brand_attitude_change_post
   const attitudeUnit = result?.metric_units?.brand_attitude_change_post
   const attainment = result?.goal_attainment
+  const rate = attainmentRate(attainment)
+  const refRate = attainmentRate(reference?.goal_attainment)
+  const referenceProfit = reference?.metrics.incremental_profit_thb?.p50
+  const repeat = result?.metrics.repeat_rate
+  const reasons = result?.metric_unavailable_reasons
+  const checks = result?.guardrails ?? []
+  const failed = checks.filter(check => !check.pass).length
   return <article className="verdict-plan" data-recommended={recommended || undefined}>
     <header>
-      <h3>{plan.label}</h3>
+      <div><h3>{plan.label}</h3>{recommended && <small className="verdict-plan-choice">Recommended plan</small>}</div>
       {plan.discount_pct != null && <p>{plan.discount_pct}% voucher</p>}
     </header>
     <dl className="verdict-profit">
       <div className="median">
         <dt>Median incremental profit · P50</dt>
         <dd>{profit ? money(profit.p50) : 'Unavailable'}</dd>
+        {!profit && reasons?.incremental_profit_thb && <dd className="verdict-missing">{reasons.incremental_profit_thb}</dd>}
       </div>
+      {profit && referenceProfit != null && <div className="verdict-profit-delta"><dt className="verdict-sr-only">Change in median profit</dt>
+        <dd>{profitComparison(profit.p50, referenceProfit)}</dd>
+      </div>}
       <div><dt>Downside · P10</dt><dd>{profit ? money(profit.p10) : 'Unavailable'}</dd></div>
       <div><dt>Upside · P90</dt><dd>{profit ? money(profit.p90) : 'Unavailable'}</dd></div>
     </dl>
@@ -52,13 +66,23 @@ function PlanComparison({ plan, result, goalThb, recommended }: {
         <dd>{roas ? roas.p50.toFixed(2) + '×' : 'Unavailable'}</dd>
         {!roas && result?.metric_unavailable_reasons?.roas && <dd className="verdict-reason">{result.metric_unavailable_reasons.roas}</dd>}
       </div>
-      <div><dt>New buyers · P50</dt><dd>{result?.metrics.new_buyers?.p50 ?? 'Unavailable'}</dd></div>
-      <div><dt>Brand attitude change · P50</dt><dd>{attitude ? [attitude.p50.toFixed(1), attitudeUnit].filter(Boolean).join(' ') : 'Unavailable'}</dd></div>
+      <div><dt>New buyers · P50</dt><dd>{result?.metrics.new_buyers?.p50 ?? 'Unavailable'}</dd>
+        {!result?.metrics.new_buyers && reasons?.new_buyers && <dd className="verdict-reason">{reasons.new_buyers}</dd>}
+      </div>
+      <div><dt>Repeat purchase rate · P50</dt><dd>{repeat ? formatResult(repeat.p50, result?.metric_units?.repeat_rate ?? '· unit unspecified') : 'Unavailable'}</dd>
+        {!repeat && reasons?.repeat_rate && <dd className="verdict-reason">{reasons.repeat_rate}</dd>}
+      </div>
+      <div><dt>Brand attitude change · P50</dt><dd>{attitude ? [attitude.p50.toFixed(1), attitudeUnit].filter(Boolean).join(' ') : 'Unavailable'}</dd>
+        {!attitude && reasons?.brand_attitude_change_post && <dd className="verdict-reason">{reasons.brand_attitude_change_post}</dd>}
+      </div>
       <div><dt>Samples meeting the {money(goalThb)} goal</dt><dd>
-        {attainment && attainment.valid_paired_samples > 0 ? `${attainment.met_samples} / ${attainment.valid_paired_samples}` : 'Unavailable'}
-      </dd></div>
+        {attainment && rate != null ? <>{percent.format(rate)} <small>({attainment.met_samples} / {attainment.valid_paired_samples})</small></> : 'Unavailable'}
+      </dd>{rate != null && refRate != null && <dd className="verdict-reason">{pointsComparison(rate,refRate)}</dd>}
+        {result && attainment && attainment.valid_paired_samples !== result.seeds && <dd className="verdict-reason">{attainment.valid_paired_samples} valid pairs reported across {result.seeds} simulated seeds.</dd>}
+      </div>
     </dl>
     <Disclosure title="Guardrails">
+      {checks.length > 0 && <p className="verdict-check-summary">{failed ? `${failed} of ${checks.length} failed` : `All ${checks.length} passed`}</p>}
       {result?.guardrails.length
         ? <dl className="verdict-metrics">{result.guardrails.map(guard => <div key={guard.name}><dt>{guard.name}</dt><dd>{guard.pass ? 'Pass' : 'Fail'}</dd></div>)}</dl>
         : <p>Guardrail results unavailable.</p>}
@@ -91,6 +115,8 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
   const recommendation = report.integrity.status === 'passed' ? report.recommendation : null
   const plans = report.plans.filter(plan => plan.role !== 'baseline')
   const baseline = report.plans.find(plan => plan.role === 'baseline')
+  const originalId = plans.find(plan => plan.role === 'original')?.plan_id
+  const originalResult = report.results.find(r => r.plan_id === originalId && r.scenario_id === scenario)
   const recommended = plans.find(plan => plan.plan_id === recommendation?.plan_id)
   const decision = recommended?.label ?? (recommendation?.plan_id === null ? 'Hold the campaign' : 'No recommendation available')
   const resultFor = (planId: string, scenarioId: string) =>
@@ -107,7 +133,7 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
 
     <section aria-labelledby="verdict-decision" className="verdict-decision">
       <div><p className="verdict-label">Recommendation</p>
-        <h2 id="verdict-decision">{decision}</h2>
+        <h2 id="verdict-decision" data-emphasis={recommended ? 'positive' : undefined}>{decision}</h2>
         <p>{recommendation?.summary ?? report.integrity.reason ?? 'This run has insufficient evidence to recommend a plan.'}</p>
       </div>
       <div className="verdict-confidence"><p className="verdict-label">Confidence</p>
@@ -119,14 +145,14 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
     <section aria-labelledby="verdict-comparison">
       <header className="verdict-comparison-heading">
         <div><h2 id="verdict-comparison">Compare plans</h2><p>Incremental profit after costs, compared with no campaign.</p></div>
-        {report.scenarios.length > 0 && <label className="verdict-scenario">Rival scenario
-          <select value={scenario} onChange={event => changeScenario(event.target.value)}>
-            {report.scenarios.map(item => <option key={item.scenario_id} value={item.scenario_id}>{item.label}</option>)}
-          </select>
-        </label>}
       </header>
+      {report.scenarios.length > 0 && <ScenarioChoices
+        options={report.scenarios.map(item => ({ id:item.scenario_id, label:item.label }))}
+        value={scenario} onChange={changeScenario}
+        description={report.scenarios.find(item => item.scenario_id === scenario)?.description}
+      />}
       {plans.length > 0 ? <div className="verdict-plans">{plans.map(plan =>
-        <PlanComparison key={plan.plan_id} plan={plan} result={resultFor(plan.plan_id, scenario)} goalThb={report.goal_thb} recommended={recommended?.plan_id === plan.plan_id}/>
+        <PlanComparison key={plan.plan_id} plan={plan} result={resultFor(plan.plan_id, scenario)} goalThb={report.goal_thb} reference={plan.role === 'alternative' ? originalResult : undefined} recommended={recommended?.plan_id === plan.plan_id}/>
       )}</div> : <p>Campaign plans unavailable for this run.</p>}
     </section>
 
@@ -164,6 +190,7 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
         <HistoricalCheck history={history} historyStatus={historyStatus}/>
         <Disclosure title="Assumptions and integrity">
           <p>Simulation integrity {report.integrity.status}. {report.integrity.reason}</p>
+          <p>Campaign days {report.window.start_day}–{report.window.end_day}. Follow-up through day {report.window.follow_up_end_day}.</p>
           {report.assumptions.length > 0 && <ul>{report.assumptions.map(assumption => <li key={assumption}>{assumption}</li>)}</ul>}
         </Disclosure>
       </section>

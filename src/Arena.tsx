@@ -1,28 +1,38 @@
-import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ArenaViews, IsometricMarket } from './ArenaViews'
+import { WorkflowMap } from './WorkflowMap'
+import { ScenarioChoices } from './ScenarioChoices'
 import { PixelArena } from './PixelArena'
 import { ShopperPicker, shopperName } from './ShopperPicker'
-import { brandColors, brandLabels, money, type Agent, type Brand, type Report, type Result, type Trace } from './model'
+import { brandLabels, money, type Agent, type Brand, type Day, type Report, type Result, type Trace } from './model'
 import './arena-page.css'
 
 const TrendChart = lazy(() => import('./TrendChart'))
 const emptyAgents: Agent[] = []
 const groups: Brand[] = ['ours', 'rival', 'market', 'waiting']
 const formatNumber = new Intl.NumberFormat('en', { maximumFractionDigits: 1 })
-const rangeOf = (low: string, high: string) => `P10–P90 · ${low} to ${high}`
-
-export function ScenarioControl({ report, scenario, change }: {
-  report: Report; scenario: string; change: (id: string) => void
-}) {
-  const id = useId()
-  return <div className="ra-scenario"><label htmlFor={id}>Rival scenario</label>
-    <select id={id} value={scenario} onChange={e => change(e.target.value)}>
-      {report.scenarios.map(s => <option key={s.scenario_id} value={s.scenario_id}>{s.label}</option>)}
-    </select>
-  </div>
+class TrendBoundary extends Component<{ days: Day[]; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed:true } }
+  render() {
+    if (!this.state.failed) return this.props.children
+    const percentage = (n:number | null) => n == null ? 'Unavailable' : formatNumber.format(n)+'%'
+    return <details className="ra-series-fallback"><summary>Chart unavailable · view daily values</summary>
+      <table><thead><tr><th>Day</th><th>Plan</th><th>No campaign</th></tr></thead><tbody>
+        {this.props.days.map(d => <tr key={d.day}><th scope="row">{d.day}</th>
+          <td>{percentage(d.brand_share_pct)}</td><td>{percentage(d.baseline_share_pct)}</td></tr>)}
+      </tbody></table>
+    </details>
+  }
 }
 
-function Metric({ title, value, note }: { title: string; value: string; note: string }) {
-  return <div><dt>{title}</dt><dd>{value}</dd><dd className="ra-metric-note">{note}</dd></div>
+function RangeNote({ low, high, currency = false, highlightDownside = false }: { low: number; high: number; currency?: boolean; highlightDownside?: boolean }) {
+  const fmt = currency ? money : (n: number) => formatNumber.format(n)
+  return <>P10–P90 · <span data-outcome={highlightDownside ? 'negative' : undefined}>{fmt(low)}</span> to {fmt(high)}</>
+}
+
+function Metric({ title, value, note, tone }: { title: string; value: string; note: ReactNode; tone?: string }) {
+  return <div><dt>{title}</dt><dd data-outcome={tone}>{value}</dd><dd className="ra-metric-note">{note}</dd></div>
 }
 
 function RailSection({ title, children }: { title: string; children: ReactNode }) {
@@ -39,6 +49,7 @@ type Props = {
 export function Arena({ report, result, baseline, scenario, changeScenario, planId, changePlan, day, changeDay, selected, select, trace, traceStatus, onVerdict }: Props) {
   const [playing, setPlaying] = useState(false)
   const [ghost, setGhost] = useState(false)
+  const [view, setView] = useState<'isometric' | '2d' | 'flow'>('isometric')
   const [lens, setLens] = useState<Brand | 'changed' | null>(null)
   const inspector = useRef<HTMLHeadingElement>(null)
   const days = result?.daily
@@ -49,6 +60,11 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
   const agents = shoppers.length > 180 ? shoppers.slice(0, 180) : shoppers
   const baselineDay = baseline?.daily.find(d => d.day === day)
   const baselineAgents = baselineDay?.agents
+  const canOverlay = !!agents.length && !!baselineAgents?.length
+  const series = useMemo(() => {
+    const byDay = new Map(baseline?.daily.map(frame => [frame.day, frame.brand_share_pct]))
+    return days?.map(frame => ({ ...frame, baseline_share_pct: frame.baseline_share_pct ?? byDay.get(frame.day) ?? null }))
+  }, [days, baseline])
   const from = days?.[0]?.day ?? report.window.start_day
   const to = days?.at(-1)?.day ?? report.window.follow_up_end_day
   const phase = day < report.window.start_day ? 'Pre-launch' : day <= report.window.end_day ? 'Campaign active' : 'Follow-up'
@@ -58,6 +74,10 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
   const moves = (result?.competitor_actions ?? []).filter(m => m.day <= day).sort((a,b) => b.day - a.day)
   const lastMove = moves[0]
   const profit = result?.metrics.incremental_profit_thb
+  const highlightDownside = !!profit && profit.p10 < 0 && profit.p50 >= 0
+  const medianTone = profit && !highlightDownside && profit.p50 !== 0
+    ? (profit.p50 < 0 ? 'negative' : 'positive')
+    : undefined
   const buyers = result?.metrics.new_buyers
   const share = current?.brand_share_pct
   const baseShare = current?.baseline_share_pct ?? baselineDay?.brand_share_pct
@@ -72,14 +92,19 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
   const activeTrace = trace?.shopper_id === selected ? trace : null
   const memory = activeTrace?.memory_by_day[String(day)]
   const events = activeTrace?.events.filter(e => e.day <= day) ?? []
+  const decision = events.at(-1)
   const basePerson = selected && baselineAgents?.find(a => a.shopper_id === selected)
+  const rivalDays = [...new Set(result?.competitor_actions.map(action => action.day))].sort((a,b) => a-b)
   const checkpoints = [
     { label:'Baseline', at:from, show:from < report.window.start_day },
     { label:'Launch', at:report.window.start_day, show:true },
-    { label:'Rival move', at:result?.competitor_actions[0]?.day, show:true },
+    ...rivalDays.map(at => ({ label:rivalDays.length === 1 ? 'Rival move' : `Rival move · D${at}`, at, show:true })),
     { label:'Promotion ends', at:report.window.end_day, show:true },
-    { label:'Follow-up', at:to, show:to > report.window.end_day },
-  ].filter(m => m.show && m.at != null && days?.some(d => d.day === m.at))
+    { label:'Follow-up ends', at:to, show:to > report.window.end_day },
+  ].filter(m => m.show && days?.some(d => d.day === m.at)).sort((a,b) => a.at-b.at)
+  const nextCheckpoint = checkpoints.find(m => m.at > day)
+  const comparisons = report.plans.filter(p => report.results.some(row => row.plan_id === p.plan_id && row.scenario_id === scenario)).map(p => p.label)
+  const firstChange = report.candidate?.changes[0]
 
   useEffect(() => {
     if (!playing) return
@@ -106,19 +131,20 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
     inspector.current?.focus()
   }
 
+  const mapProps = { agents, ghosts: canOverlay && ghost ? baselineAgents : undefined, selected, onSelect: (id:string) => inspect(id,null), day, playing }
   return <div className="rehearsal-arena">
     <header className="ra-heading">
       <h1>Market arena</h1>
-      <div className="ra-head-controls"><ScenarioControl report={report} scenario={scenario} change={id => { setPlaying(false); changeScenario(id) }}/>
-        <button className="ra-btn ra-primary" onClick={onVerdict}>View verdict</button></div>
+      <button className="ra-btn ra-primary" onClick={onVerdict}>View verdict</button>
     </header>
-
+    <ScenarioChoices options={report.scenarios.map(s => ({ id:s.scenario_id, label:s.label }))}
+      value={scenario} onChange={id => { setPlaying(false); changeScenario(id) }} description={scenarioInfo?.description}/>
     <dl className="ra-metrics" aria-label="Simulation highlights">
-      <Metric title="Incremental profit" value={profit ? money(profit.p50) : 'Unavailable'}
-        note={profit ? rangeOf(money(profit.p10), money(profit.p90)) : 'No estimate returned'}/>
-      <Metric title="Incremental buyers" value={buyers ? formatNumber.format(buyers.p50) : 'Unavailable'}
-        note={buyers ? rangeOf(formatNumber.format(buyers.p10), formatNumber.format(buyers.p90)) : 'No estimate returned'}/>
-      <Metric title="Brand preference" value={share == null ? 'Unavailable' : formatNumber.format(share)+'%'}
+      <Metric title="Profit lift · full-run median" value={profit ? money(profit.p50) : 'Unavailable'} tone={medianTone}
+        note={profit ? <RangeNote low={profit.p10} high={profit.p90} currency highlightDownside={highlightDownside}/> : 'No estimate returned'}/>
+      <Metric title="Buyer lift · full-run median" value={buyers ? formatNumber.format(buyers.p50) : 'Unavailable'}
+        note={buyers ? <RangeNote low={buyers.p10} high={buyers.p90}/> : 'No estimate returned'}/>
+      <Metric title={`Brand preference · day ${day}`} value={share == null ? 'Unavailable' : formatNumber.format(share)+'%'}
         note={lift == null ? 'At the selected day' : `${lift > 0 ? '+' : ''}${formatNumber.format(lift)} pp vs no campaign`}/>
       <Metric title="Simulation day" value={String(day)} note={`${phase} · through day ${to}`}/>
     </dl>
@@ -135,7 +161,10 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
           </dl>
         </RailSection>
         <RailSection title="Strategist">
-          <p>{report.candidate?.summary ?? 'No Strategist proposal was returned for this run.'}</p>
+          {firstChange ? <><span className="ra-subtitle">{firstChange.lever}</span>
+            <p className="ra-change"><span>{firstChange.from}</span> to <strong>{firstChange.to}</strong></p>
+            <details className="ra-supplement"><summary>Why this change?</summary><p>{firstChange.why}</p></details>
+          </> : <p>{report.candidate?.summary ?? 'No proposal was returned.'}</p>}
         </RailSection>
         <section className="ra-rail-section ra-inspector">
           <h2 id="ra-inspector-title" ref={inspector} tabIndex={-1}>Shopper inspector</h2>
@@ -143,14 +172,15 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
             onChoose={id => inspect(id,lens)} onFind={id => inspect(id,null)} onClear={() => { setLens(null); select(null) }}
             onSwitchers={() => switchers[0] && inspect(switchers[0].shopper_id,'changed')}/> : <p>No shoppers were returned for this day.</p>}
           {selected && (traceStatus ? <p role="status">{traceStatus}</p> : activeTrace ? <div className="ra-trace">
-            <h3>{activeTrace.segment_id}</h3>
-            <dl className="ra-facts"><div><dt>Price sensitivity</dt><dd>{activeTrace.traits.price_sensitivity}</dd></div>
-              <div><dt>Loyalty</dt><dd>{activeTrace.traits.loyalty}</dd></div></dl>
-            <p>{activeTrace.explanation || 'This shopper has no recorded explanation.'}</p>
-            <details><summary>Memory and events</summary><div className="ra-detail-copy">
+            <div className="ra-decision"><small>Day {day} decision</small><p>{decision?.day === day ? decision.detail : 'No event recorded for this day.'}</p></div>
+            <details key={selected} className="ra-supplement"><summary>Shopper details</summary><div className="ra-detail-copy">
+              <h3>{activeTrace.segment_id}</h3>
+              <dl className="ra-facts"><div><dt>Price sensitivity</dt><dd>{activeTrace.traits.price_sensitivity}</dd></div>
+                <div><dt>Loyalty</dt><dd>{activeTrace.traits.loyalty}</dd></div></dl>
+              {activeTrace.explanation && <p>{activeTrace.explanation}</p>}
               {basePerson && <p>No campaign · {brandLabels[basePerson.brand]}</p>}
               {memory && <dl className="ra-memory">{Object.entries(memory).map(([brand,v])=><div key={brand}><dt>{brand}</dt><dd>Awareness {v.awareness} · Attitude {v.attitude}</dd></div>)}</dl>}
-              {events.length ? <ol>{events.map((e,i)=><li key={i}>Day {e.day} · {e.type} · {e.detail}</li>)}</ol> : <p>No events recorded through day {day}.</p>}
+              {events.length > 0 && <details><summary>Event history ({events.length})</summary><ol>{events.map((e,i)=><li key={i}>Day {e.day} · {e.type} · {e.detail}</li>)}</ol></details>}
             </div></details>
           </div> : <p role="status">Shopper trace unavailable.</p>)}
         </section>
@@ -158,18 +188,24 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
 
       <section className="ra-market" aria-label="Market and timeline">
         <div className="ra-stage-header">
-          <div><h2>Market square</h2><p>{agents.length ? `${agents.length} simulated shoppers` : 'Shopper positions unavailable'}</p></div>
-          <label className="ra-baseline"><input type="checkbox" checked={!!baselineAgents?.length && ghost}
-            disabled={!baselineAgents?.length} onChange={e => setGhost(e.target.checked)}/>Baseline overlay</label>
+          <div><h2>{view === 'flow' ? 'Simulation workflow' : 'Market square'}</h2>{view !== 'flow' && <p>{agents.length ? `${agents.length} simulated shoppers` : 'Shopper positions unavailable'}</p>}</div>
+          {view !== 'flow' && <label className="ra-baseline"><input type="checkbox" checked={canOverlay && ghost}
+            disabled={!canOverlay} onChange={e => setGhost(e.target.checked)}/>Baseline overlay</label>}
         </div>
-        <div className="ra-stage">
-          <PixelArena agents={agents} ghosts={ghost ? baselineAgents : undefined} selected={selected} onSelect={id => inspect(id,null)} day={day} playing={playing}/>
-          {!agents.length && <p className="ra-map-message">No shopper positions are available for this day.</p>}
-        </div>
-        <div className="ra-stage-caption">
-          <span>{selected ? <button type="button" className="ra-text-btn" onClick={focusInspector}>Inspect {shopperName(selected)}</button> : 'Select a shopper on the map'}</span>
-          <span>{ghost && baselineAgents?.length ? 'Outlines show the baseline' : 'Positions illustrate preference'}</span>
-        </div>
+        <ArenaViews onViewChange={setView}
+          twoD={<div className="ra-stage"><PixelArena {...mapProps}/></div>}
+          isometric={<div className="ra-stage ra-isometric"><IsometricMarket {...mapProps}/></div>}
+          flow={<WorkflowMap mode="demo" plan={choice?.label} scenario={scenarioInfo?.label ?? scenario} comparisons={comparisons}
+            selectablePlans={availablePlans.map(p => p.label)} seedCount={result?.seeds}
+            onChoosePlan={label => {
+              const plan = availablePlans.find(p => p.label === label)
+              if (plan) { setPlaying(false); changePlan(plan.plan_id) }
+            }} day={day} phase={phase} nextCheckpoint={nextCheckpoint?.at != null ? {day:nextCheckpoint.at,label:nextCheckpoint.label,onGo:()=>jump(nextCheckpoint.at)} : undefined}
+            onVerdict={onVerdict}/>}/>
+        {view !== 'flow' && <div className="ra-stage-caption">
+          {agents.length ? <><span>{selected ? <button type="button" className="ra-text-btn" onClick={focusInspector}>Inspect {shopperName(selected)}</button> : 'Select a shopper to inspect'}</span>
+            <span>{ghost && canOverlay ? 'Overlay shows the no-campaign baseline' : 'Positions illustrate preference'}</span></> : <p>No shopper positions are available for this day.</p>}
+        </div>}
         <div className="ra-playback">
           <button className="ra-btn ra-inverse" aria-label={playing ? 'Pause timeline' : 'Play timeline'} disabled={!days || days.length < 2}
             onClick={() => { if (day >= to) changeDay(from); setPlaying(!playing) }}>{playing ? 'Pause' : day >= to ? 'Replay' : 'Play'}</button>
@@ -179,24 +215,24 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
           </div>
         </div>
         <div className="ra-checkpoints" aria-label="Timeline checkpoints">{checkpoints.map(m=>
-          <button type="button" aria-pressed={day===m.at} key={m.label} onClick={() => jump(m.at!)}>{m.label}</button>)}</div>
+          <button type="button" aria-pressed={day===m.at} key={m.label} onClick={() => jump(m.at)}>{m.label}</button>)}</div>
       </section>
 
       <aside className="ra-rail ra-right" aria-label="Rival activity and market mix">
         <RailSection title="Rival activity">
-          <h3>{scenarioInfo?.label ?? scenario}</h3><p>{scenarioInfo?.description}</p>
           {lastMove ? <div className="ra-last-move"><small>Day {lastMove.day} · {lastMove.brand}</small>
-            <h3>{lastMove.action}</h3><p>{lastMove.reason}</p>
+            <h3>{lastMove.action}</h3>
+            <details className="ra-supplement"><summary>Reason for move</summary><p>{lastMove.reason}</p></details>
           </div> : <p className="ra-quiet-event">No rival move through day {day}.</p>}
         </RailSection>
         <RailSection title="Shopper mix">
-          <p>Preference on day {day}</p>
+          <p>{agents.length} shoppers · day {day}</p>
           <div className="ra-cohorts">{groups.map(brand => {
             const group = byGroup[brand]
             return <button key={brand} disabled={!group.length} className="ra-cohort" type="button" aria-describedby="ra-group-help"
               onClick={() => { inspect(group[0].shopper_id,brand); focusInspector() }}>
               <span>{brandLabels[brand]}</span><b>{group.length}</b>
-              <i aria-hidden="true"><i style={{width:(agents.length ? group.length/agents.length*100 : 0)+'%',background:brandColors[brand]}}/></i>
+              <i aria-hidden="true"><i style={{width:(agents.length ? group.length/agents.length*100 : 0)+'%'}}/></i>
             </button>
           })}</div>
           <p id="ra-group-help" className="ra-cohort-note">{shoppers.length>agents.length ? `${agents.length} of ${shoppers.length} shoppers shown.` : 'Choose a group to inspect a shopper.'}</p>
@@ -205,16 +241,16 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
 
       <section className="ra-trend">
         <div className="ra-trend-header"><h2>Brand preference</h2><div className="ra-key" aria-label="Chart legend"><span>Plan</span><span>No campaign</span></div></div>
-        {days?.some(d => d.brand_share_pct != null) ? <Suspense fallback={<p className="ra-chart-loading" role="status">Loading preference trend…</p>}>
-          <TrendChart day={day} data={days} window={report.window}/>
-        </Suspense> : <p>No preference trend was returned for this scenario.</p>}
+        {series?.some(d => d.brand_share_pct != null) ? <TrendBoundary days={series}><Suspense fallback={<p className="ra-chart-loading" role="status">Loading preference trend…</p>}>
+          <TrendChart day={day} data={series} window={report.window}/>
+        </Suspense></TrendBoundary> : <p>No preference trend was returned for this scenario.</p>}
       </section>
     </div>
 
     <details className="ra-more"><summary>Arena insights</summary><div className="ra-insights-content">
       <section><h2>Rival moves</h2>{moves.length ? <ol>{moves.map((m,i)=><li key={i}><strong>Day {m.day} · {m.brand}</strong><p>{m.action}. {m.reason}</p></li>)}</ol> : <p>No events through day {day}.</p>}</section>
       <section><h2>Plan evidence</h2>{result && <p>{result.seeds} simulation seeds · {scenarioInfo?.label ?? scenario}</p>}
-        {result?.guardrails.map(g=><p key={g.name}>{g.name} · {g.pass ? 'Passed' : 'Failed'}</p>)}
+        {result?.guardrails.map(g=><p key={g.name}>{g.name} · <strong>{g.pass ? 'Passed' : 'Failed'}</strong></p>)}
         {report.assumptions.map(s=><p key={s}>{s}</p>)}</section>
       <section><h2>Strategist changes</h2>{report.candidate?.changes.length ? <ul>{report.candidate.changes.map(c=><li key={c.lever}><strong>{c.lever}</strong><p>{c.from} to {c.to}. {c.why}</p></li>)}</ul> : <p>No changes provided.</p>}</section>
     </div></details>

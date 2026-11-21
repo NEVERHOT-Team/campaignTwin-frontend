@@ -1,6 +1,6 @@
 # CampaignTwin Demo 1 · API Endpoint Contract
 
-**Current frontend integration target.** Big’s `docs/campaigntwin-api-v1.openapi.yaml` at backend `dev@26e5e96` is implemented. The seven operations cover interview creation and resume, natural-language and structured revisions, approval, submission, status and reports. The frontend handoff records planner-owned inputs, backend-derived fields, the single synthetic catalog choice and aggregate Arena limits. [Frontend v1 handoff](../docs/backend-v1-handoff.md) · [Pinned OpenAPI](https://github.com/NEVERHOT-Team/campaignTwin-backend/blob/26e5e96/docs/campaigntwin-api-v1.openapi.yaml)
+**Current frontend integration target.** Big’s `docs/campaigntwin-api-v1.openapi.yaml` at backend `dev@0c3e6a2` is implemented. The ten operations cover review creation and resume, revisions, approval, run submission and status, reports, frozen inputs, decision checks and historical comparisons. The frontend handoff records planner-owned inputs, backend-derived fields, the single synthetic catalog choice and aggregate Arena limits. [Frontend v1 handoff](../docs/backend-v1-handoff.md) · [Pinned OpenAPI](https://github.com/NEVERHOT-Team/campaignTwin-backend/blob/0c3e6a2/docs/campaigntwin-api-v1.openapi.yaml)
 
 ## Earlier Demo 1 proposal
 

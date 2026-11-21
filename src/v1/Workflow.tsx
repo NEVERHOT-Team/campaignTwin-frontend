@@ -3,6 +3,7 @@ import { WorkspaceHeader } from '../WorkspaceHeader'
 import { ApiError, createV1Client, type Approval, type Review, type Report, type RunState } from './client'
 import { changes, controls, humanize, issue, toFields, toForm } from './planner'
 import { RunReport } from './RunReport'
+import { useRunSelection } from './run-selection'
 import LiveArena from './LiveArena'
 import { ReviewEvidence } from './ReviewEvidence'
 import '../intake.css'
@@ -49,6 +50,7 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
   const [state,setState] = useState<RunState|null>(null)
   const [report,setReport] = useState<Report|null>(null)
   const [viewVerdict,setViewVerdict] = useState(false)
+  const selection = useRunSelection()
   const [pollError,setPollError] = useState('')
   const [attempt,setAttempt] = useState(0)
   const [busy,setBusy] = useState<'send'|'save'|'submit'|null>(null)
@@ -201,6 +203,8 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
     } finally { setBusy(null) }
   }
   function newCampaign() {
+    selection.setPlanId('')
+    selection.setScenarioId('')
     try { sessionStorage.removeItem(sessionKey) } catch { /* Storage is optional. */ }
     setRun(null); setState(null); setReport(null); setViewVerdict(false); setReview(null); setReceipt(null); setConsent(false); setConfirmed([])
     setDraftText(''); setForm({}); setTurns([]); setError(''); setNotice(''); setPollError(''); setPending(null)
@@ -236,8 +240,8 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
     <main className="workspace v1-workspace" id="planner-workspace">
       {restoring ? <p className="v1-loading" role="status">Reopening campaign…</p>
         : failedRestore ? <section className="v1-loading"><h1>Reopen campaign</h1><p role="alert">{error}</p><button className="intake-primary" onClick={() => setRestoreAttempt(n => n+1)}>Try again</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></section>
-         : report && !viewVerdict ? <LiveArena report={report} review={review} onVerdict={() => { setViewVerdict(true); window.scrollTo(0,0) }}/>
-        : report ? <><RunReport report={report}/><div className="v1-verdict-actions"><button className="intake-secondary" onClick={() => { setViewVerdict(false); window.scrollTo(0,0) }}>Back to arena</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></div></>
+        : report && !viewVerdict ? <LiveArena report={report} review={review} selection={selection} onVerdict={() => { setViewVerdict(true); window.scrollTo(0,0) }}/>
+        : report ? <><RunReport report={report} selection={selection}/><div className="v1-verdict-actions"><button className="intake-secondary" onClick={() => { setViewVerdict(false); window.scrollTo(0,0) }}>Back to arena</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></div></>
         : run ? <section className="v1-loading">
           <h1>{state?.status === 'error' ? 'Run failed' : state?.status === 'done' ? 'Opening verdict…' : 'Rehearsal in progress'}</h1>
           <p>{state?.failure?.message ?? (state ? `${humanize(state.status)} · ${Math.round(state.progress*100)}%` : 'Waiting for run status…')}</p>

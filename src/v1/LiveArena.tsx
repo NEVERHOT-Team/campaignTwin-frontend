@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { marketBackdrop, marketHeight, marketWidth } from '../pixel-market-art'
+import { ArenaViews, IsometricMarket } from '../ArenaViews'
+import { WorkflowMap } from '../WorkflowMap'
+import { ScenarioChoices } from '../ScenarioChoices'
 import { humanize } from './planner'
 import type { Report, Review } from './client'
+import { resolveRunSelection, type RunSelection } from './run-selection'
 import '../arena-page.css'
 import './live-arena.css'
 
 type Metric = Report['scenario_results'][number]['metrics'][number]
 type PlanResult = NonNullable<Report['plan_results']>[number]
-type Props = { report: Report; review?: Review | null; onVerdict: () => void; onOpenDemo?: () => void }
+type Props = { report: Report; review?: Review | null; selection: RunSelection; onVerdict: () => void; onOpenDemo?: () => void }
 
 const planLabels = { original: 'Your plan', conservative: 'Smaller discount', baseline: 'No campaign' }
 const numbers = new Intl.NumberFormat('en', { maximumFractionDigits: 2 })
@@ -30,14 +34,14 @@ function interval(window: Report['measurement_window']) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 'Unavailable'
   return calendar.formatRange(start, end - 86400000)
 }
-function ResultMetric({ title, metric }: { title: string; metric?: Metric }) {
+function ResultMetric({ title, metric, tone }: { title: string; metric?: Metric; tone?: 'positive'|'negative' }) {
   let detail = metric?.unavailable_reason ? humanize(metric.unavailable_reason) : 'No estimate returned'
   if (metric && metric.status === 'available' && metric.value !== null) {
     detail = typeof metric.value === 'number'
       ? 'Across paired seeds'
       : 'P10–P90 · ' + metricValue(metric, 'p10') + ' to ' + metricValue(metric, 'p90')
   }
-  return <div><dt>{title}</dt><dd>{metricValue(metric)}</dd><dd className="ra-metric-note">{detail}</dd></div>
+  return <div><dt>{title}</dt><dd data-outcome={tone}>{metricValue(metric)}</dd><dd className="ra-metric-note">{detail}</dd></div>
 }
 function IllustratedMarket() {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -45,10 +49,9 @@ function IllustratedMarket() {
     const context = canvas.current?.getContext('2d')
     if (context) context.drawImage(marketBackdrop(), 0, 0)
   }, [])
-  return <figure className="ra-stage live-market-illustration">
+  return <div className="ra-stage live-market-illustration">
     <canvas ref={canvas} width={marketWidth} height={marketHeight} role="img" aria-label="Illustration of a four-stall market square"/>
-    <figcaption>Illustrative map · Individual shopper observations unavailable</figcaption>
-  </figure>
+  </div>
 }
 function Subsidy({ offer }: { offer:PlanResult['input']['offer'] | undefined }) {
   if (offer === null) return <>No offer</>
@@ -56,13 +59,8 @@ function Subsidy({ offer }: { offer:PlanResult['input']['offer'] | undefined }) 
   return <>{offer.discount.unit === 'pct' ? numbers.format(offer.discount.value) + '%' : baht.format(offer.discount.value)} {offer.discount.kind === 'voucher' ? 'voucher' : 'off'}</>
 }
 
-export default function LiveArena({ report, review, onVerdict, onOpenDemo }: Props) {
-  const [requestedPlan, setRequestedPlan] = useState('')
-  const [requestedScenario, setRequestedScenario] = useState('')
-  const plans = report.plan_results ?? []
-  const plan = plans.find(p => p.input.plan_id === requestedPlan) ?? plans.find(p => p.role === 'original') ?? plans[0]
-  const results = plan ? plan.scenario_results : report.scenario_results
-  const scene = results.find(s => s.scenario === requestedScenario) ?? results[0]
+export default function LiveArena({ report, review, selection, onVerdict, onOpenDemo }: Props) {
+  const { plans, plan, results, scene, choosePlan } = resolveRunSelection(report,selection)
   const metric = (id: Metric['metric']) => scene?.metrics.find(m => m.metric === id)
   const buyers = metric('incremental_new_buyers')
   // Older reports contain only scenario aggregates. The review can supply context for the exact approved revision.
@@ -82,36 +80,45 @@ export default function LiveArena({ report, review, onVerdict, onOpenDemo }: Pro
   const versions = input?.data_versions ?? report.data_versions
   const policy = versions.evaluation_policy
   const sourceLabel = policy?.startsWith('synthetic-') ? 'Synthetic evaluation' : 'Evaluated run'
+  const labels = results.map(({ scenario }) => ({
+    id: scenario,
+    label: policy === 'synthetic-tissue-v1' && scenario === 'S1' ? 'S1 · No rival action' : scenario,
+  }))
+  const profit = metric('incremental_profit')?.value
+  const medianProfit = typeof profit === 'object' && profit !== null ? profit.p50 : null
+  const loss = metric('probability_loss')?.value
+  const aboveLimit = evaluation && typeof loss === 'number' && loss > evaluation.max_loss_probability
+  const eligibleHouseholds = eligibleSegments.reduce((sum,s) => sum+s.households,0)
+  const comparedPlans = plans.filter(p => p.scenario_results.some(s => s.scenario === scene?.scenario))
+  const comparedLabels = comparedPlans.map(p => planLabels[p.role])
+  const floorCaption = <figcaption className="live-market-caption">Market illustration · This run reports aggregate outcomes.</figcaption>
 
   return <div className="rehearsal-arena live-market-arena">
     <header className="ra-heading"><h1>Market arena</h1>
       <div className="ra-head-controls">
-        {scene && <div className="ra-scenario"><label htmlFor="live-arena-scenario">Scenario</label>
-          <select id="live-arena-scenario" value={scene.scenario} onChange={event => setRequestedScenario(event.target.value)}>
-            {results.map(s => <option key={s.scenario} value={s.scenario}>{s.scenario}</option>)}
-          </select></div>}
         <button className="ra-btn ra-primary" onClick={onVerdict}>View verdict</button>
       </div>
     </header>
 
+    {scene && <ScenarioChoices options={labels} value={scene.scenario} onChange={selection.setScenarioId} label={results.length === 1 ? 'Evaluated scenario' : 'Rival scenario'}/>}
     <dl className="ra-metrics" aria-label="Evaluated scenario highlights">
-      <ResultMetric title="Median incremental profit" metric={metric('incremental_profit')}/>
+      <ResultMetric title="Median incremental profit" metric={metric('incremental_profit')} tone={!aboveLimit && medianProfit != null && medianProfit > 0 ? 'positive' : undefined}/>
       <ResultMetric title="Median incremental ROAS" metric={metric('incremental_roas')}/>
       <ResultMetric title="Median subsidy leakage" metric={metric('subsidy_leakage')}/>
-      <ResultMetric title="Probability of loss" metric={metric('probability_loss')}/>
+      <ResultMetric title="Probability of loss" metric={metric('probability_loss')} tone={aboveLimit ? 'negative' : undefined}/>
     </dl>
 
     <div className="ra-layout">
       <aside aria-label="Plan inputs and audience" className="ra-rail ra-left">
-        <section className="ra-rail-section"><h2>Campaign plan</h2>
+        <section className="ra-rail-section live-rail-plan"><h2>Campaign plan</h2>
           {plan && <><label className="sr-only" htmlFor="live-arena-plan">Evaluated plan</label>
-            <select value={plan.input.plan_id} id="live-arena-plan" className="ra-plan" onChange={event => setRequestedPlan(event.target.value)}>
+            <select value={plan.input.plan_id} id="live-arena-plan" className="ra-plan" onChange={event => choosePlan(event.target.value)}>
               {plans.map(p => <option key={p.input.plan_id} value={p.input.plan_id}>{planLabels[p.role]}</option>)}
             </select></>}
           {product && <p className="live-market-product">{product.label} · {product.pack_label}</p>}
           <dl className="ra-facts">
             {product && <div><dt>Channel</dt><dd>{humanize(product.channel)}</dd></div>}
-            {offer !== undefined && <div><dt>Mechanic</dt><dd>{!input && offer === null ? 'Unresolved' : <Subsidy offer={offer}/>}</dd></div>}
+            {offer !== undefined && <div><dt>Offer</dt><dd>{!input && offer === null ? 'Unresolved' : <Subsidy offer={offer}/>}</dd></div>}
             {budget != null && <div><dt>Subsidy budget</dt><dd>{baht.format(budget)}</dd></div>}
             {window && <div><dt>Active dates</dt><dd>{interval(window)}</dd></div>}
           </dl>
@@ -120,48 +127,57 @@ export default function LiveArena({ report, review, onVerdict, onOpenDemo }: Pro
         </section>
         <section className="ra-rail-section"><h2>Audience</h2>
           {selectedSegmentIds == null ? <p>Audience unavailable.</p> : <>
-            <p>{selectedSegmentIds.length ? 'Targeted segments' : 'All eligible segments'}</p>
-            {eligibleSegments.length > 0 && <dl className="ra-facts">{eligibleSegments.map(s =>
-              <div key={s.segment_id}><dt>{humanize(s.name)}</dt><dd>{numbers.format(s.households)} households</dd></div>
-            )}</dl>}
+            <p>{selectedSegmentIds.length ? 'Targeted segments' : 'All eligible buyers'}</p>
+            {eligibleSegments.length > 0 && <>
+              <p className="live-market-reach">{numbers.format(eligibleHouseholds)} households</p>
+              <details className="live-rail-detail"><summary>{eligibleSegments.length} audience segments</summary>
+                <dl className="ra-facts">{eligibleSegments.map(s => <div key={s.segment_id}><dt>{humanize(s.name)}</dt><dd>{numbers.format(s.households)}</dd></div>)}</dl>
+              </details></>}
           </>}
         </section>
       </aside>
 
       <section className="ra-market" aria-labelledby="live-market-square">
         <div className="ra-stage-header"><div><h2 id="live-market-square">Market square</h2>
-          <p>{sourceLabel}{scene && ' · Scenario ' + scene.scenario}{plan && ' · ' + planLabels[plan.role]}</p></div></div>
-        <IllustratedMarket/>
+          <p>{sourceLabel}{plan && ' · ' + planLabels[plan.role]}</p></div></div>
+        <ArenaViews twoD={<figure><IllustratedMarket/>{floorCaption}</figure>}
+          isometric={<figure><IsometricMarket/>{floorCaption}</figure>}
+          flow={<WorkflowMap mode="live" plan={plan && planLabels[plan.role]} scenario={scene?.scenario}
+            revision={report.revision} comparisons={comparedLabels} decision={humanize(report.decision.status)}
+            seedCount={input?.seeds.length} selectablePlans={comparedLabels} onChoosePlan={label => {
+              const choice = comparedPlans.find(p => planLabels[p.role] === label)
+              if (choice) choosePlan(choice.input.plan_id)
+            }} onVerdict={onVerdict}/>}/>
         <div className="live-market-basis">
-          <p>Measured {interval(report.measurement_window)}</p>
+          <p>Evaluation window · {interval(report.measurement_window)}</p>
           {input && <p>{input.seeds.length} paired seeds</p>}
         </div>
         {onOpenDemo && <button className="ra-text-btn" onClick={onOpenDemo}>Explore the shopper demo</button>}
       </section>
 
       <aside aria-label="Decision and evaluation policy" className="ra-rail ra-right">
-        <section className="ra-rail-section"><h2>Original plan decision</h2><h3>{humanize(report.decision.status)}</h3>
+        <section className="ra-rail-section live-decision"><h2>Original plan decision</h2><h3>{humanize(report.decision.status)}</h3>
           <p>{report.decision.explanation}</p>
         </section>
         <section className="ra-rail-section"><h2>Selected plan outcomes</h2>
-          <dl className="ra-facts">
-            <div><dt>Chance of meeting target</dt><dd>{metricValue(metric('probability_hit_target'))}</dd></div>
-            <div><dt>Median incremental buyers</dt><dd>{metricValue(buyers)}</dd></div>
+          <dl className="ra-facts"><div><dt>Chance of meeting target</dt><dd>{metricValue(metric('probability_hit_target'))}</dd></div>
+            {evaluation && <div><dt>Loss risk limit</dt><dd>{percentage.format(evaluation.max_loss_probability)}</dd></div>}
           </dl>
-          {buyers?.unavailable_reason && <p className="live-market-note">{humanize(buyers.unavailable_reason)} for incremental buyers.</p>}
-          {evaluation && <dl className="ra-facts live-market-thresholds">
-            <div><dt>Approved loss limit</dt><dd>{percentage.format(evaluation.max_loss_probability)}</dd></div>
-            {evaluation.goal_target && <div><dt>{humanize(evaluation.goal_target.metric)} target</dt><dd>≥ {valueInUnit(evaluation.goal_target.minimum,evaluation.goal_target.unit)}</dd></div>}
-          </dl>}
+          <details className="live-rail-detail"><summary>Measurement details</summary>
+            <dl className="ra-facts"><div><dt>Median incremental buyers</dt><dd>{metricValue(buyers)}</dd></div>
+              {evaluation?.goal_target && <div><dt>{humanize(evaluation.goal_target.metric)} target</dt><dd>≥ {valueInUnit(evaluation.goal_target.minimum,evaluation.goal_target.unit)}</dd></div>}
+            </dl>
+            {buyers?.unavailable_reason && <p className="live-market-note">{humanize(buyers.unavailable_reason)} for incremental buyers.</p>}
+          </details>
         </section>
       </aside>
 
-      {plans.length > 0 && scene && <section className="ra-trend live-market-comparison"><h2>Plan comparison · {scene.scenario}</h2>
+      {comparedPlans.length > 0 && scene && <section className="ra-trend live-market-comparison"><h2>Plan comparison · {scene.scenario}</h2>
         <div className="live-market-table"><table><thead><tr><th scope="col">Plan</th><th scope="col">P10 profit</th><th scope="col">P50 profit</th><th scope="col">Loss risk</th></tr></thead>
-          <tbody>{plans.map(p => {
+          <tbody>{comparedPlans.map(p => {
             const metrics = p.scenario_results.find(s => s.scenario === scene.scenario)?.metrics
             const profit = metrics?.find(m => m.metric === 'incremental_profit')
-            return <tr key={p.input.plan_id}><th scope="row">{planLabels[p.role]}</th>
+            return <tr key={p.input.plan_id} data-selected={p.input.plan_id === plan?.input.plan_id}><th scope="row"><button type="button" aria-pressed={p.input.plan_id === plan?.input.plan_id} onClick={() => choosePlan(p.input.plan_id)}>{planLabels[p.role]}</button></th>
               <td>{metricValue(profit,'p10')}</td><td>{metricValue(profit)}</td><td>{metricValue(metrics?.find(m => m.metric === 'probability_loss'))}</td>
             </tr>
           })}</tbody>

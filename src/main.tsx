@@ -4,7 +4,8 @@ import './styles.css'
 
 const DemoApp = lazy(() => import('./DemoApp'))
 const LiveWorkflow = lazy(() => import('./v1/Workflow'))
-const isStandalone = location.protocol === 'file:' || import.meta.env.VITE_STANDALONE === 'true'
+const hostedDemo = import.meta.env.VITE_HOSTED === 'true' && !import.meta.env.VITE_API_BASE_URL?.trim()
+const isStandalone = location.protocol === 'file:' || import.meta.env.VITE_STANDALONE === 'true' || hostedDemo
 type Mode = 'planner' | 'demo'
 const modeFromUrl = (): Mode => isStandalone || new URLSearchParams(location.search).get('mode') === 'demo' ? 'demo' : 'planner'
 

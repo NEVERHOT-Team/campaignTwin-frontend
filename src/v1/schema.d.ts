@@ -181,6 +181,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        /** Inspect the exact approved revision supplied to the evaluator */
+        get: operations["getRunInput"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        /** Compare simulated plans and inspect the submitted plan's decision checks */
+        get: operations["getBusinessEvaluation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/report": {
         parameters: {
             query?: never;
@@ -209,10 +247,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/historical-comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read historical evidence associated with a completed rehearsal
+         * @description Join by run, approval and revision. Return the evidence snapshot pinned for this run.
+         *     For older runs without a pinned reference, return unavailable, reason snapshot_missing.
+         *     For a newly completed run, an unavailable source or prediction is an evidence outcome
+         *     (HTTP 200). A failed run has no published report (409).
+         */
+        get: operations["getHistoricalComparison"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        HistoricalCase: {
+            campaign_id: string;
+            /** @constant */
+            dataset: "complete_journey";
+            /** @description SHA-256 of the canonical loader-returned case JSON */
+            evidence_version: string;
+            /** @constant */
+            source: "data";
+            /** @constant */
+            category: "toilet_tissue";
+            matched_on: ("category" | "offer_mechanic")[];
+            limitations: string[];
+            fit_through_week: number;
+            baseline_weeks: components["schemas"]["WeekWindow"];
+            campaign_weeks: components["schemas"]["WeekWindow"];
+            /** @constant */
+            metric: "control_adjusted_category_sales_lift";
+            /** @constant */
+            unit: "percentage_points";
+            observed_range: {
+                low: number;
+                high: number;
+                /** @constant */
+                basis: "mean_and_median_control_adjustment";
+            };
+        };
+        /** @description Inclusive retail week indices from the historical dataset. */
+        WeekWindow: {
+            first: number;
+            last: number;
+        };
+        /**
+         * @description Optional future engine-to-adapter evidence. The producer must rehearse the named historical
+         *     campaign and calculate the same control-adjusted category-sales measure. Protocol v1 binds
+         *     the metric, aggregate population, baseline and control definitions used by load_backtest.
+         *     artifact_id identifies an immutable prediction with an auditable fit cutoff.
+         */
+        HistoricalPrediction: {
+            artifact_id: string;
+            campaign_id: string;
+            evidence_version: string;
+            /** @constant */
+            protocol: "complete_journey_tissue_holdout_v1";
+            fit_through_week: number;
+            baseline_weeks: components["schemas"]["WeekWindow"];
+            campaign_weeks: components["schemas"]["WeekWindow"];
+            /** @constant */
+            metric: "control_adjusted_category_sales_lift";
+            /** @constant */
+            unit: "percentage_points";
+            value: number;
+        };
+        HistoricalComparison: {
+            run_id: components["schemas"]["Uuid"];
+            approval_id: components["schemas"]["Uuid"];
+            revision: components["schemas"]["Revision"];
+            reference: components["schemas"]["HistoricalCase"] | null;
+            prediction: components["schemas"]["HistoricalPrediction"] | null;
+            /** @enum {unknown} */
+            status: "unavailable" | "reference_only" | "inside_range" | "outside_range";
+            /** @enum {unknown} */
+            reason: "snapshot_missing" | "source_unavailable" | "no_comparable_case" | "prediction_missing" | "incompatible_prediction" | null;
+        } & ({
+            /** @constant */
+            status?: "unavailable";
+            /** @enum {unknown} */
+            reason?: "snapshot_missing" | "source_unavailable" | "no_comparable_case";
+            reference?: null;
+            prediction?: null;
+        } | {
+            /** @constant */
+            status?: "reference_only";
+            /** @enum {unknown} */
+            reason?: "prediction_missing" | "incompatible_prediction";
+            reference?: Record<string, never>;
+            prediction?: null;
+        } | {
+            /** @enum {unknown} */
+            status?: "inside_range" | "outside_range";
+            reason?: null;
+            reference?: Record<string, never>;
+            prediction?: Record<string, never>;
+        });
         /** Format: uuid */
         Uuid: string;
         Text: string;
@@ -614,6 +760,47 @@ export interface components {
             seeds: number[];
             contingency_rules: unknown[];
         };
+        RunInput: {
+            run_id: components["schemas"]["Uuid"];
+            approval_id: components["schemas"]["Uuid"];
+            review: components["schemas"]["Review"];
+        };
+        BusinessEvaluation: {
+            run_id: components["schemas"]["Uuid"];
+            approval_id: components["schemas"]["Uuid"];
+            review_id: components["schemas"]["Uuid"];
+            revision: components["schemas"]["Revision"];
+            evaluation_policy: string;
+            /** @constant */
+            comparator: "paired_no_campaign";
+            measurement_window: components["schemas"]["DateWindow"];
+            decision: components["schemas"]["Decision"];
+            checks_unavailable_reason: string | null;
+            comparisons: {
+                /** @enum {unknown} */
+                role: "original" | "conservative" | "baseline";
+                plan_id: string | null;
+                discount_pct: number | null;
+                scenario_results: components["schemas"]["ScenarioResult"][];
+            }[];
+            /** @description Original-plan gates. An unavailable leakage metric prevents a decision. */
+            checks: {
+                scenario: components["schemas"]["ScenarioId"];
+                /** @enum {unknown} */
+                metric: "incremental_profit" | "probability_loss" | "subsidy_leakage";
+                /** @enum {unknown} */
+                statistic: "p50" | "value";
+                /** @enum {unknown} */
+                unit: "THB" | "fraction";
+                observed: number | null;
+                /** @enum {unknown} */
+                condition: "available" | "at_least" | "at_most";
+                threshold: number | null;
+                /** @enum {unknown} */
+                status: "pass" | "fail" | "unavailable";
+                unavailable_reason: string | null;
+            }[];
+        };
         /**
          * @description Include each evaluated scenario once, with each policy-required
          *     metric present exactly once even when unavailable. Percentiles are
@@ -906,6 +1093,63 @@ export interface operations {
             422: components["responses"]["InvalidRequest"];
         };
     };
+    getRunInput: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Frozen evaluator arguments, including resolved context and field origins. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunInput"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["InvalidRequest"];
+        };
+    };
+    getBusinessEvaluation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paired model outcomes and decision evidence from the stored run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessEvaluation"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description The run has no completed report. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            422: components["responses"]["InvalidRequest"];
+        };
+    };
     getRunReport: {
         parameters: {
             query?: never;
@@ -928,6 +1172,39 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             /** @description The run is still queued or running, or it ended in error. Poll its status for details. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            422: components["responses"]["InvalidRequest"];
+        };
+    };
+    getHistoricalComparison: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Historical observation and, when supported, its held-out evaluation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoricalComparison"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description Report pending or run failed, using existing v1 error codes. */
             409: {
                 headers: {
                     [name: string]: unknown;

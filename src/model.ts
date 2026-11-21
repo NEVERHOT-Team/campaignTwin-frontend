@@ -85,7 +85,7 @@ export const emptyValues: Values = { brand: '', discount_pct: '', total_budget_t
 export const sampleBrief = 'Rehearse a 15% seller voucher for Crunchy Co. on Shopee Thailand. Budget ฿20,000. Each potato-chip multipack sells for ฿120 and costs ฿65. Marketplace fee 10%; fixed cost ฿0.'
 export const money = (value: number) => new Intl.NumberFormat('en-TH', { style: 'currency', currency: 'THB', maximumFractionDigits: 0 }).format(value)
 export const brandLabels: Record<Brand, string> = { ours: 'Your brand', market: 'Market lane', rival: 'Discounter', waiting: 'Undecided' }
-export const brandColors: Record<Brand, string> = { ours: '#4d8dff', market: '#b59af2', rival: '#f58a66', waiting: '#b2b9ad' }
+export const brandColors: Record<Brand, string> = { ours: '#E2AD46', market: '#b59af2', rival: '#f58a66', waiting: '#b2b9ad' }
 
 export function validate(values: Values) {
   const issues: Partial<Record<FieldKey, string>> = {}

@@ -1,5 +1,5 @@
 import { exampleCampaign, fieldIssues } from './campaign'
-import { type Agent, type Backtest, type Brand, type CampaignApi, type Candidate, type Draft, type Field, type FieldKey, type Plan, type Range, type Report, type ReviewContext, type Run, type Scenario, type Trace, emptyValues, fieldKeys } from './model'
+import { type Agent, type Backtest, type Brand, type CampaignApi, type Candidate, type Draft, type Field, type FieldKey, type Plan, type Range, type Report, type ReviewContext, type Run, type Scenario, type Trace, brandLabels, emptyValues, fieldKeys } from './model'
 
 const scenarioList: Scenario[] = [
   { scenario_id: 'S1', label: 'Quiet market', description: 'Rivals keep their usual pricing.' },
@@ -63,6 +63,29 @@ function brandAt(i: number, day: number, scenario: string, alternative: boolean)
   return n > .88 ? 'waiting' : 'market'
 }
 
+const shopperIds = Array.from({ length: 120 }, (_, i) => 'shopper-' + String(i + 1).padStart(3, '0'))
+const baselineAgents: Agent[] = shopperIds.map((shopper_id, i) => ({ shopper_id, brand: brandAt(i, 0, 'S1', false) }))
+function brandShare(agents: Agent[]) {
+  return Math.round(1000 * agents.filter(a => a.brand === 'ours').length / agents.length) / 10
+}
+const baselineShare = brandShare(baselineAgents)
+
+// Reuse the same 20 synthetic seed shocks for paired plans. Both the profit
+// range and the chance of hitting the target must describe these same samples.
+const profitShockPercent = [-145,-109,-99,-82,-68,-53,-38,-28,-12,-4,4,14,25,39,55,68,76,99,109,134]
+function fixtureProfit(median: number, spread: number, factor: number, goal: number) {
+  const samples = profitShockPercent.map(shock => Math.round(factor * (median + spread * shock / 100)))
+  function quantile(q: number) {
+    const rank = q * (samples.length - 1)
+    const lower = Math.floor(rank)
+    return Math.round(samples[lower] + (samples[Math.ceil(rank)] - samples[lower]) * (rank - lower))
+  }
+  return {
+    profit: { p10: quantile(.1), p50: quantile(.5), p90: quantile(.9) },
+    attainment: { met_samples: samples.filter(value => value >= goal).length, valid_paired_samples: samples.length },
+  }
+}
+
 function reportOf(review: ReviewContext, candidate?: Candidate): Report {
   const original = review.original_plan
   const plans: Report['plans'] = [
@@ -71,33 +94,36 @@ function reportOf(review: ReviewContext, candidate?: Candidate): Report {
     { plan_id: review.baseline.id, label: 'No campaign', role: 'baseline' },
   ]
   const factor = Math.max(.3, Math.min(3, original.total_budget_thb / 20000))
+  const goal = 5000
   return {
     plans, scenarios: scenarioList,
     results: scenarioList.flatMap((s, j) => plans.map(plan => {
       const alternate = plan.role === 'alternative'
       const baseline = plan.role === 'baseline'
-      const p50 = Math.round(factor * (alternate ? [7940, 6950, 6120][j] : [9200, 5400, 2100][j]))
+      const simulation = fixtureProfit(alternate ? [7940, 6950, 6120][j] : [9200, 5400, 2100][j],
+        alternate ? 2780 : 3740, factor, goal)
       return {
-        plan_id: plan.plan_id, scenario_id: s.scenario_id, seeds: 20,
+        plan_id: plan.plan_id, scenario_id: s.scenario_id, seeds: profitShockPercent.length,
         metrics: {
-          incremental_profit_thb: baseline ? null : range(p50, Math.round(factor * (alternate ? 2780 : 3740))),
+          incremental_profit_thb: baseline ? null : simulation.profit,
           roas: null, new_buyers: baseline ? null : range((alternate ? 206 : 250) - j * 42, 41),
           repeat_rate: range(23 + (alternate ? 3 : 0), 3),
           brand_attitude_change_post: baseline ? null : range((alternate ? 2.5 : 1.8) - j * .55, .7),
         },
-        metric_units: { brand_attitude_change_post: 'index points' },
+        metric_units: { brand_attitude_change_post: 'index points', repeat_rate: 'pct' },
         metric_unavailable_reasons: { roas: 'Voucher-only scenario. No attributed media spend.' },
         guardrails: baseline ? [] : [{ name: 'Discount cap', pass: (plan.discount_pct ?? 0) <= 25 }, { name: 'Budget cap', pass: true }, { name: 'Unit contribution floor', pass: true }],
-        goal_attainment: baseline ? null : { met_samples: (alternate ? [18, 16, 14] : [19, 11, 3])[j], valid_paired_samples: 20 },
+        goal_attainment: baseline ? null : simulation.attainment,
         daily: Array.from({ length: 29 }, (_, day) => {
-          const agents: Agent[] = Array.from({ length: 120 }, (_, i) => ({ shopper_id: 'shopper-' + String(i + 1).padStart(3, '0'), brand: brandAt(i, baseline ? 0 : day, s.scenario_id, alternate) }))
-          return { day, agents, brand_share_pct: Math.round(agents.filter(a => a.brand === 'ours').length / 1.2), baseline_share_pct: 22 }
+          const agents = baseline ? baselineAgents : shopperIds.map((shopper_id, i) => ({ shopper_id, brand: brandAt(i, day, s.scenario_id, alternate) }))
+          return { day, agents, brand_share_pct: brandShare(agents), baseline_share_pct: baselineShare }
         }),
         competitor_actions: j && !baseline ? [{ day: 5, brand: 'Discounter', action: j === 2 ? 'Undercuts the voucher' : 'Matches the voucher', value: j === 2 ? Math.min(100, (plan.discount_pct ?? original.discount_pct) + 5) : plan.discount_pct ?? original.discount_pct, reason: 'The rival responds after detecting the campaign offer.' }] : [],
       }
     })),
-    window: { start_day: 1, end_day: 14, follow_up_end_day: 28 }, goal_thb: 5000,
-    assumptions: review.assumptions, candidate,
+    window: { start_day: 1, end_day: 14, follow_up_end_day: 28 }, goal_thb: goal,
+    assumptions: [...review.assumptions,
+      'The demo uses preset plan and rival responses. Profit samples scale with the budget between ฿6,000 and ฿60,000. Budgets outside that range use the nearest example.'], candidate,
     recommendation: { plan_id: candidate?.plan.plan_id ?? original.plan_id, summary: candidate ? 'The targeted voucher holds up better under rival pressure.' : 'Review the downside across scenarios before choosing the original plan.' },
     confidence: { label: 'Illustrative', reason: 'Synthetic outcomes and no verified held-out result.' },
     integrity: { status: 'passed' },
@@ -124,23 +150,34 @@ function matchFields(text: string): Field[] {
 const sampleReview = reviewOf(mockDraft, 'sample', 1)
 let sampleReport: Report | undefined
 const replayReport = () => (sampleReport ??= reportOf(sampleReview, candidateOf(sampleReview, mockDraft)))
-export const sampleAgents: Agent[] = Array.from({ length: 120 }, (_, i) => ({
-  shopper_id: 'shopper-' + String(i + 1).padStart(3, '0'), brand: brandAt(i, 7, 'S3', false),
-}))
-
 function traceFrom(report: Report, id: string, day: number, scenario: string, planId: string): Trace {
   const row = report.results.find(r => r.scenario_id === scenario && r.plan_id === planId)
   const agent = row?.daily.find(d => d.day === day)?.agents?.find(a => a.shopper_id === id)
-  if (!agent) throw new Error('A trace is unavailable for this shopper and day.')
+  if (!row || !agent) throw new Error('A trace is unavailable for this shopper and day.')
   const n = Number(id.split('-').at(-1))
-  const brand = { ours: 'Your brand', market: 'Market lane', rival: 'Discounter', waiting: 'No brand selected' }[agent.brand]
-  const type = agent.brand === 'waiting' ? 'ignored' : agent.brand === 'rival' ? 'switched' : 'exposed'
+  const brand = brandLabels[agent.brand]
+  const events: Trace['events'] = []
+  let previous: Brand | undefined
+  for (const frame of row.daily) {
+    if (frame.day > day) break
+    const current = frame.agents?.find(a => a.shopper_id === id)?.brand
+    if (!current) continue
+    const changed = previous !== undefined && previous !== current
+    if (changed || previous === undefined || frame.day === day) {
+      const label = brandLabels[current]
+      const detail = changed && previous !== undefined ? `${brandLabels[previous]} → ${label}.`
+        : current === 'waiting' ? 'No brand selected.' : `Preference: ${label}.`
+      events.push({ day: frame.day, type: changed ? 'switched' : current === 'waiting' ? 'ignored' : 'exposed',
+        brand: label, channel: 'Shopee', detail })
+    }
+    previous = current
+  }
   return {
     shopper_id: id, segment_id: n % 3 === 0 ? 'Brand loyal' : n % 3 === 1 ? 'Value seeker' : 'Category explorer',
     traits: { price_sensitivity: 40 + n % 52, loyalty: 25 + n * 3 % 65 },
     memory_by_day: { [day]: { [brand]: { awareness: Math.min(100, 30 + day * 3 + n % 19), attitude: 35 + n % 53 } } },
-    events: [{ day, type, brand, channel: 'Shopee', detail: type === 'switched' ? 'Favoring the rival offer.' : type === 'ignored' ? 'Has not chosen an offer.' : 'Noticed this seller’s offer.' }],
-    explanation: type === 'switched' ? 'The rival voucher is more attractive to this price-sensitive shopper in this fixture.' : 'This is a synthetic shopper trace for the selected day and scenario.',
+    events,
+    explanation: 'This replay records preference changes. Individual purchase motives are unavailable.',
   }
 }
 
