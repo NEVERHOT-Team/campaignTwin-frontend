@@ -1,7 +1,9 @@
 .live-market-illustration {margin:0}
 .live-market-illustration canvas {image-rendering:pixelated}
-.live-market-replay-note {display:flex;align-items:center;justify-content:space-between;gap:6px 16px;flex-wrap:wrap;margin:0 0 10px}
-.live-market-replay-note p {flex:1 1 200px;font-size:12px;line-height:1.45}
+.live-arena-actions {display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.live-market-replay-note {margin:0 0 10px}
+.live-market-replay-note p {font-size:12px;line-height:1.45}
+@media(max-width:600px) {.live-arena-actions {width:100%;justify-content:flex-start}}
 .live-market-arena figure {margin:0}
 .live-market-arena .ra-left,.live-market-arena .ra-right {overflow:hidden}
 .live-market-arena .ra-rail-section {padding:clamp(15px,1.45vw,23px)}

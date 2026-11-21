@@ -216,7 +216,10 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
 
   return <div className="rehearsal-arena live-market-arena">
     <header className="ra-heading"><h1>Market arena</h1>
-      <ArenaVerdictPrompt onVerdict={onVerdict}/>
+      <div className="live-arena-actions">
+        {onOpenDemo && <button type="button" className="button secondary" onClick={onOpenDemo}>Open shopper replay</button>}
+        <ArenaVerdictPrompt onVerdict={onVerdict}/>
+      </div>
     </header>
 
     {scene && <ScenarioChoices options={labels} value={scene.scenario} onChange={selection.setScenarioId} label={results.length === 1 ? 'Evaluated scenario' : 'Rival scenario'}/>}
@@ -264,8 +267,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
         <div className="ra-stage-header"><div><h2 id="live-market-square">{view === 'flow' ? 'Simulation workflow' : 'Market square'}</h2>
           <p>{sourceLabel}{plan && ' · ' + planLabels[plan.role]}</p></div></div>
         {view !== 'flow' && <div className="live-market-replay-note">
-          <p>Live runs report shopper totals. Open the sample replay to see individual shoppers move.</p>
-          {onOpenDemo && <button type="button" className="ra-text-btn" onClick={onOpenDemo}>Open shopper replay</button>}
+          <p>This campaign report includes weekly shopper counts. The separate sample replay shows animated shoppers.</p>
         </div>}
         <ArenaViews onViewChange={setView} twoD={<figure><IllustratedMarket/></figure>}
           isometric={<figure><IsometricMarket/></figure>}
