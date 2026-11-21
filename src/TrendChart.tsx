@@ -6,7 +6,7 @@ const dashed = '5 4'
 
 export default function TrendChart({ data, window, day }: { data: Day[]; window: Report['window']; day: number }) {
   const point = data.find(entry => entry.day === day)
-  return <div className="chart" role="img" aria-label="Brand preference by day, with the active campaign period shaded">
+  return <div className="chart" role="img" aria-label="Share of simulated shoppers who would choose your brand by day, with the active campaign period shaded">
     <ResponsiveContainer width="100%" height="100%">
       <ComposedChart data={data} margin={{ top: 12, right: 12, bottom: 0, left: -20 }}>
         <CartesianGrid stroke="#303030" vertical={false}/>

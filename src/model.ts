@@ -21,8 +21,12 @@ export type Approval = {
 }
 export type Scenario = { scenario_id: string; label: string; description: string }
 export type Range = { p10: number; p50: number; p90: number }
-export type Brand = 'ours' | 'market' | 'rival' | 'waiting'
-export type Agent = { shopper_id: string; brand: Brand }
+export type Brand = string
+export type MapZone = 'ours' | 'rival' | 'market' | 'commons'
+export type BrandGroup = { id: Brand; label: string; color: string; role: 'focal' | 'competitor' | 'market' }
+export type Purchase = 'bought' | 'no_purchase'
+// Brand is the shopper's preference. Older replays did not record daily purchases.
+export type Agent = { shopper_id: string; brand: Brand; purchase?: Purchase; waiting?: boolean; promotion_exposed?: boolean }
 export type Day = { day: number; brand_share_pct: number | null; baseline_share_pct: number | null; agents?: Agent[] }
 export type Move = { day: number; brand: string; action: string; value?: number; reason: string }
 export type Result = {
@@ -37,7 +41,7 @@ export type Result = {
 export type Trace = {
   shopper_id: string; segment_id: string; traits: { price_sensitivity: number; loyalty: number }
   memory_by_day: Record<string, Record<string, { awareness: number; attitude: number }>>
-  events: { day: number; type: 'exposed' | 'purchased' | 'switched' | 'ignored'; brand: string; channel: string; detail: string }[]
+  events: { day: number; type: 'exposed' | 'purchased' | 'switched' | 'ignored' | 'no_purchase' | 'observed'; brand: string; channel: string; detail: string; purchase?: Purchase; waiting?: boolean; promotion_exposed?: boolean }[]
   explanation?: string | null
 }
 export type Backtest = {
@@ -46,6 +50,7 @@ export type Backtest = {
   metrics: { label: string; unit: string; observed: number; simulated: number; naive: number }[]
 }
 export type Report = {
+  brand_groups?: BrandGroup[]
   inputs?: {
     source: 'example' | 'submission'; brief?: string; campaign: Record<string, string>; original_plan: Plan
   }
@@ -87,8 +92,13 @@ export const fieldKeys = Object.keys(fieldLabels) as FieldKey[]
 export const emptyValues: Values = { brand: '', discount_pct: '', total_budget_thb: '', unit_price_thb: '', unit_cost_thb: '', fee_pct: '', fixed_campaign_spend_thb: '' }
 export const sampleBrief = 'Rehearse a 15% seller voucher for Crunchy Co. on Shopee Thailand. Budget ฿20,000. Each potato-chip multipack sells for ฿120 and costs ฿65. Marketplace fee 10%; fixed cost ฿0.'
 export const money = (value: number) => new Intl.NumberFormat('en-TH', { style: 'currency', currency: 'THB', maximumFractionDigits: 0 }).format(value)
-export const brandLabels: Record<Brand, string> = { ours: 'Your brand', market: 'Market lane', rival: 'Discounter', waiting: 'Undecided' }
-export const brandColors: Record<Brand, string> = { ours: '#E2AD46', market: '#b59af2', rival: '#f58a66', waiting: '#b2b9ad' }
+export const brandLabels: Record<MapZone, string> = { ours: 'Your brand', rival: 'Top rival', market: 'Rest of market', commons: 'Commons' }
+export const brandColors: Record<MapZone, string> = { ours: '#E2AD46', market: '#b59af2', rival: '#f58a66', commons: '#b2b9ad' }
+export const defaultBrandGroups: BrandGroup[] = [
+  { id: 'ours', label: brandLabels.ours, color: brandColors.ours, role: 'focal' },
+  { id: 'rival', label: brandLabels.rival, color: brandColors.rival, role: 'competitor' },
+  { id: 'market', label: brandLabels.market, color: brandColors.market, role: 'market' },
+]
 
 export function validate(values: Values) {
   const issues: Partial<Record<FieldKey, string>> = {}

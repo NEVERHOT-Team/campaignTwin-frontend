@@ -227,3 +227,11 @@
 .ra-series-fallback table {width:100%;margin-top:6px;font-variant-numeric:tabular-nums;font-size:13px}
 .ra-series-fallback :is(td,th) {padding:5px 8px;border-top:1px solid var(--ra-line);text-align:right}
 .ra-series-fallback tr>:first-child {text-align:left}
+.ra-purchase-mix {margin-top:10px}
+.ra-purchase-mix>.ra-subtitle {font-weight:570}
+.ra-purchase-mix .ra-cohorts {margin-top:2px}
+.ra-cohort-outside {margin:7px -5px 0;border-top:1px solid var(--ra-line);padding-top:5px}
+.ra-waiting-subset {margin:2px 5px 6px;padding-left:10px;border-left:1px solid #575757}
+.ra-waiting-subset>small {display:block;color:var(--ra-soft);font-size:11px;line-height:1.5}
+.ra-waiting-subset .ra-cohort-subset {min-height:32px;align-items:center;padding:4px 0;font-size:12px}
+.ra-rail .ra-cohort:disabled {opacity:1;color:#aaa}

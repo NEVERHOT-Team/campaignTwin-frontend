@@ -1,10 +1,54 @@
-import { brandColors, type Brand } from './model'
+import { brandColors, type BrandGroup } from './model'
 
 export const marketWidth = 560
 export const marketHeight = 350
 export type Point = { x: number; y: number }
 type Ink = CanvasRenderingContext2D
+export type Bounds = [left:number, top:number, right:number, bottom:number]
 type Rect = [number, number, number, number]
+export type MarketSite = { group:BrandGroup; x:number; y:number; courts:Bounds[] }
+export type MarketLayout = { sites:MarketSite[]; commons:Bounds[]; obstacles:Bounds[]; height:number }
+
+const plots: {x:number;y:number;courts:Bounds[]}[] = [
+  {x:45,y:27,courts:[[28,106,218,182],[224,109,252,141]]},
+  {x:410,y:27,courts:[[342,106,532,182],[307,111,334,143]]},
+  {x:45,y:220,courts:[[29,298,214,327],[161,209,216,295],[217,207,254,236]]},
+]
+const roleZone = {focal:'ours',competitor:'rival',market:'market'} as const
+
+/** Give each reported group its own plot. Additional vendors extend the square down the lane. */
+export function marketLayout(groups:readonly BrandGroup[] = []):MarketLayout {
+  const unique=new Map<string,BrandGroup>()
+  for(const group of groups)if(group?.id && !unique.has(group.id))unique.set(group.id,group)
+  const reservations=new Map<string,number>(),occupied=new Set<number>()
+  const ordered=[...unique.values()]
+  for(const group of ordered){
+    const ideal=['focal','competitor','market'].indexOf(group.role)
+    if(ideal>=0 && !occupied.has(ideal)){reservations.set(group.id,ideal);occupied.add(ideal)}
+  }
+  let next=0
+  const sites=ordered.map(group=>{
+    let slot=reservations.get(group.id)
+    if(slot===undefined){while(occupied.has(next))next++;slot=next;occupied.add(slot)}
+    if(slot<plots.length)return {...plots[slot],group}
+    const extended=slot-plots.length, left=extended%2===0, y=361+Math.floor(extended/2)*150
+    const courts:Bounds[]=left?[[28,y+76,239,y+133]]:[[320,y+76,532,y+133]]
+    return {group,x:left?45:410,y,courts}
+  })
+  // Public paths link the garden and fountain so non-buyers can stay around the whole square.
+  const commons:Bounds[]=[
+    [346,296,531,327],[346,205,395,287],[403,263,524,290],[364,197,502,204],
+    [237,62,320,103],[262,110,297,142],[257,210,319,238],[228,281,327,325],
+  ]
+  const obstacles:Bounds[]=[
+    [32,15,158,99],[397,15,521,99],[32,208,158,292],
+    [399,214,440,251],[482,214,526,251],[446,236,475,254],
+    [248,144,310,200],[216,246,240,261],[319,246,342,261],[247,251,312,268],
+    ...sites.filter(s=>s.y>350).map(s=>[s.x-13,s.y-12,s.x+111,s.y+72] as Bounds),
+  ]
+  const extraRows=Math.ceil(Math.max(0,sites.length-plots.length)/2)
+  return {sites,commons,obstacles,height:marketHeight+150*extraRows}
+}
 
 function fill(c: Ink, color: string, ...rects: Rect[]) {
   c.fillStyle = color
@@ -29,8 +73,22 @@ const palettes = {
   ours:   ['#765B35','#C69A53','#E2AD46','#FFE8BA'],
   market: ['#63506f','#8f72b0','#bba2d1','#e2d3e7'],
   rival:  ['#924e3c','#c96b4d','#e59370','#f3cfad'],
-  waiting:['#526452','#748775','#a0ae8b','#dce0c7'],
+  commons:['#526452','#748775','#a0ae8b','#dce0c7'],
 } as const
+
+type Palette=readonly [string,string,string,string]
+function groupPalette(group:BrandGroup):Palette {
+  const zone=roleZone[group.role] ?? 'market'
+  const original=palettes[zone]
+  if(group.color?.toLowerCase()===brandColors[zone]?.toLowerCase())return original
+  if(!/^#[0-9a-f]{6}$/i.test(group.color))return original
+  const rgb=Number.parseInt(group.color.slice(1),16)
+  const mix=(target:number,fraction:number)=>'#'+[16,8,0].map(shift=>{
+    const channel=(rgb>>shift)&255
+    return Math.round(channel+(target-channel)*fraction).toString(16).padStart(2,'0')
+  }).join('')
+  return [mix(24,.55),mix(48,.16),group.color,mix(247,.72)]
+}
 
 function tree(c: Ink,x: number,y: number,scale=1) {
   c.save(); c.translate(x,y); c.scale(scale,scale)
@@ -78,12 +136,17 @@ const letters: Record<string, number[]> = {
   K:[17,18,20,24,20,18,17],L:[16,16,16,16,16,16,31],M:[17,27,21,21,17,17,17],
   N:[17,25,25,21,19,19,17],O:[14,17,17,17,17,17,14],R:[30,17,17,30,20,18,17],
   S:[15,16,16,14,1,1,30],T:[31,4,4,4,4,4,4],U:[17,17,17,17,17,17,14],
-  Y:[17,17,10,4,4,4,4],
+  F:[31,16,16,30,16,16,16],P:[30,17,17,30,16,16,16],V:[17,17,17,17,10,10,4],Y:[17,17,10,4,4,4,4],
 }
 function signLetters(c:Ink,text:string,x:number,y:number) {
   const glyphs=text.toUpperCase().split('')
-  let left=x-Math.floor((glyphs.length*6-1)/2)
   c.fillStyle='#314143'
+  if(glyphs.length>15 || glyphs.some(g=>g!==' ' && !letters[g])){
+    c.save();c.font='bold 9px system-ui';c.textAlign='center';c.textBaseline='top'
+    c.fillText(text,x,y-1,94);c.restore()
+    return
+  }
+  let left=x-Math.floor((glyphs.length*6-1)/2)
   for(const letter of glyphs){
     letters[letter]?.forEach((line,row)=>{
       for(let col=0;col<5;col++)if(line & (16>>col))c.fillRect(left+col,y+row,1,1)
@@ -92,8 +155,9 @@ function signLetters(c:Ink,text:string,x:number,y:number) {
   }
 }
 
-function shop(c:Ink,x:number,y:number,brand:Brand,label:string) {
-  const [edge,cloth,lit,light]=palettes[brand]
+function shop(c:Ink,{x,y,group}:MarketSite) {
+  const brand=roleZone[group.role]??'market',label=group.label||group.id
+  const [edge,cloth,lit,light]=groupPalette(group)
   c.save();c.translate(x,y)
   // Shop origin is the left side of the stall and the top of its wall sign.
   cut(c,1,8,108,53,5,'#b6a88c')
@@ -111,19 +175,14 @@ function shop(c:Ink,x:number,y:number,brand:Brand,label:string) {
     fill(c,body,[left-1,22,10,7]);fill(c,hem,[left-1,29,10,3],[left,32,8,1])
   }
   fill(c,'#806d50',[3,31,3,23],[96,31,3,23]);fill(c,'#c5a578',[4,32,1,20],[96,32,1,20])
-  if(brand==='waiting'){
-    fill(c,'#ded5b7',[12,45,79,4]);bench(c,22,41);bench(c,59,41)
-    planter(c,5,52,19,8);planter(c,80,52,19,2)
-  } else {
-    fill(c,'#7e644d',[8,44,86,11]);fill(c,'#c59467',[9,46,84,7])
-    for(let a=13;a<90;a+=11) fill(c,'#b08157',[a,47,1,6])
-    fill(c,'#e8c495',[8,43,86,3]);fill(c,'#886d4e',[11,54,81,2])
-    for(let i=0;i<4;i++)crate(c,13+i*16,39,13,7,i+(brand==='rival'?2:brand==='ours'?0:1))
-    fill(c,'#4a544d',[81,37,9,6]); fill(c,'#c1d0b3',[82,38,5,3])
-    crate(c,-6,48,12,8,2);crate(c,-2,55,12,7,1)
-  }
+  fill(c,'#7e644d',[8,44,86,11]);fill(c,'#c59467',[9,46,84,7])
+  for(let a=13;a<90;a+=11) fill(c,'#b08157',[a,47,1,6])
+  fill(c,'#e8c495',[8,43,86,3]);fill(c,'#886d4e',[11,54,81,2])
+  for(let i=0;i<4;i++)crate(c,13+i*16,39,13,7,i+(brand==='rival'?2:brand==='ours'?0:1))
+  fill(c,'#4a544d',[81,37,9,6]); fill(c,'#c1d0b3',[82,38,5,3])
+  crate(c,-6,48,12,8,2);crate(c,-2,55,12,7,1)
   // Sign is mounted on the building so labels never obscure shoppers.
-  const width=Math.max(60,label.length*6+10),left=Math.floor((101-width)/2)
+  const width=Math.min(103,Math.max(60,label.length*6+10)),left=Math.floor((101-width)/2)
   fill(c,edge,[left,-1,width,14]);fill(c,light,[left+1,0,width-2,11])
   fill(c,'#fff3d5',[left+2,0,width-4,1]);fill(c,cloth,[left+2,10,width-4,2])
   signLetters(c,label,50,2)
@@ -152,12 +211,24 @@ function fountain(c:Ink) {
   fill(c,'#b3ccbf',[273,150,13,1],[279,143,2,6]);fill(c,'#dce3c8',[279,143,1,4])
 }
 
-export function marketBackdrop():HTMLCanvasElement {
+function garden(c:Ink,x:number,y:number) {
+  c.save();c.translate(x,y)
+  for(const left of [0,83]){
+    cut(c,left,13,29,24,5,'#aaa387');cut(c,left-1,11,29,24,5,'#d5ccaa')
+    cut(c,left+1,12,25,20,4,'#98a77d')
+    tree(c,left+13,23)
+  }
+  bench(c,47,27);planter(c,41,16,32,18)
+  c.restore()
+}
+
+export function marketBackdrop(groups:readonly BrandGroup[] = []):HTMLCanvasElement {
+  const layout=marketLayout(groups)
   const image=document.createElement('canvas')
-  image.width=marketWidth;image.height=marketHeight
+  image.width=marketWidth;image.height=layout.height
   const c=image.getContext('2d')!
   const r=random(13071)
-  fill(c,'#8ea276',[0,0,marketWidth,marketHeight])
+  fill(c,'#8ea276',[0,0,marketWidth,layout.height])
   for(let i=0;i<2100;i++){
     const x=Math.floor(r()*marketWidth),y=Math.floor(r()*marketHeight)
     fill(c,i%3===0?'#a9b985':'#859b6e',[x,y,2,1])
@@ -200,10 +271,10 @@ export function marketBackdrop():HTMLCanvasElement {
     }
   }
   tree(c,10,72);tree(c,549,77);tree(c,13,252);tree(c,548,251)
-  shop(c,45,27,'ours','Your brand')
-  shop(c,410,27,'rival','Discounter')
-  shop(c,45,220,'market','Market lane')
-  shop(c,410,220,'waiting','Undecided')
+  for(const plot of plots){
+    if(!layout.sites.some(site=>site.x===plot.x && site.y===plot.y))garden(c,plot.x,plot.y)
+  }
+  garden(c,404,215)
   fountain(c)
   planter(c,220,248,18,11);planter(c,322,248,18,3)
   bench(c,252,254);bench(c,290,254)
@@ -214,23 +285,39 @@ export function marketBackdrop():HTMLCanvasElement {
     fill(c,'#8c927a',[x,336,25,3],[x,332,3,7])
     fill(c,'#d6cfad',[x,332,3,2],[x+3,335,22,1])
   }
+  for(let top=marketHeight;top<layout.height;top+=150){
+    cut(c,13,top+1,534,148,10,'#afb295')
+    cut(c,16,top+3,528,143,9,'#e8d9bc')
+    fill(c,'#e8d9bc',[246,top-17,65,24])
+    for(let y=top+12;y<top+140;y+=11)for(let x=25;x<529;x+=23){
+      if(r()<.28)fill(c,'#e1d1b3',[x,y,14,1])
+    }
+    planter(c,258,top+38,45,top)
+    tree(c,15,top+83);tree(c,547,top+83)
+  }
+  for(const site of layout.sites)shop(c,site)
   return image
 }
 
 const avatarW=14, avatarH=17, variations=16, poses=3
-const groups:Brand[]=['ours','rival','market','waiting']
-
-/** One small atlas keeps a busy square to a single image blit per shopper per frame. */
-export function shopperAtlas() {
-  const image=document.createElement('canvas')
-  image.width=variations*poses*avatarW;image.height=groups.length*avatarH
-  const c=image.getContext('2d')!
-  groups.forEach((brand,row)=>{
+/** Cache one strip per distinct coat so arbitrary group IDs can keep their own colors. */
+export function shopperAtlas(groups:readonly BrandGroup[] = []) {
+  const catalog=new Map(groups.map(g=>[g.id,g]))
+  const strips=new Map<string,HTMLCanvasElement>()
+  function strip(brand:string) {
+    const group=catalog.get(brand)
+    const coat=group && /^#[0-9a-f]{6}$/i.test(group.color)?group.color:palettes.commons[2]
+    const edge=group?groupPalette(group)[0]:palettes.commons[0]
+    const key=coat+edge,cached=strips.get(key)
+    if(cached)return cached
+    const image=document.createElement('canvas')
+    image.width=variations*poses*avatarW;image.height=avatarH
+    const c=image.getContext('2d')!
     for(let v=0;v<variations;v++)for(let step=0;step<poses;step++){
-      c.save();c.translate((v*poses+step)*avatarW,row*avatarH)
+      c.save();c.translate((v*poses+step)*avatarW,0)
       const skin=['#efc198','#dba67d','#bb825c','#95684e'][v%4]
       const hair=['#473d36','#624939','#7b5c44','#4c4841'][(v>>2)%4]
-      const coat=brandColors[brand], edge=palettes[brand][0], back=step===2?1:0
+      const back=step===2?1:0
       fill(c,'#b6a68b',[2,14,9,2],[4,13,8,2])
       c.translate(0,back)
       fill(c,'#3c4444',[4,10,5,3],[4-(step===1?1:0),12,2,2],[8,12,2,step===2?1:2])
@@ -239,13 +326,14 @@ export function shopperAtlas() {
       fill(c,skin,[3,9,1,2],[10,9,1,2],[5,3,4,3])
       fill(c,hair,[4,1,5,1],[4,2,6,2],[4,3,1,2])
       if(v%4===0)fill(c,hair,[3,3,1,3],[3,5,2,1])
-      if(v%4===2)fill(c,palettes[brand][0],[4,1,5,2],[3,3,7,1])
+      if(v%4===2)fill(c,edge,[4,1,5,2],[3,3,7,1])
       if(v%5===0)fill(c,'#bc8e56',[9,8,1,2],[9,10,3,2])
       c.restore()
     }
-  })
-  return (context:Ink,brand:Brand,variant:number,step:number,point:Point)=>{
-    context.drawImage(image,(variant%variations*poses+step)*avatarW,groups.indexOf(brand)*avatarH,avatarW,avatarH,
+    strips.set(key,image);return image
+  }
+  return (context:Ink,brand:string,variant:number,step:number,point:Point)=>{
+    context.drawImage(strip(brand),(variant%variations*poses+step)*avatarW,0,avatarW,avatarH,
       Math.round(point.x)-7,Math.round(point.y)-15,avatarW,avatarH)
   }
 }

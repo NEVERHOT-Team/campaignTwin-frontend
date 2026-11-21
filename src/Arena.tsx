@@ -5,12 +5,19 @@ import { replayWorkflowEvidence } from './replay-workflow'
 import { ScenarioChoices } from './ScenarioChoices'
 import { PixelArena } from './PixelArena'
 import { ShopperPicker, shopperName } from './ShopperPicker'
-import { brandLabels, money, type Agent, type Brand, type Day, type Report, type Result, type Trace } from './model'
+import { money, type Agent, type Day, type Report, type Result, type Trace } from './model'
+import { preferredBrand, resolveBrandGroups, summarizePurchases } from './shopper-groups'
+import { purchaseLabel, wouldBuyLabel } from './shopper-observation'
+import { uniqueShoppers } from './shopper-snapshot'
 import './arena-page.css'
 
 const TrendChart = lazy(() => import('./TrendChart'))
 const emptyAgents: Agent[] = []
-const groups: Brand[] = ['ours', 'rival', 'market', 'waiting']
+function normalizedDays(result?: Result) {
+  return result?.daily.map(frame => frame.agents ? { ...frame, agents:uniqueShoppers(frame.agents) } : frame)
+}
+type ShopperLens = { kind: 'purchased'; groupId: string } | { kind: 'no_purchase' | 'waiting' | 'unknown' | 'unknown_brand' | 'changed' }
+type ShopperRow = { key: string; label: string; members: Agent[]; lens: ShopperLens }
 const formatNumber = new Intl.NumberFormat('en', { maximumFractionDigits: 1 })
 class TrendBoundary extends Component<{ days: Day[]; children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -51,21 +58,25 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
   const [playing, setPlaying] = useState(false)
   const [ghost, setGhost] = useState(false)
   const [view, setView] = useState<'isometric' | '2d' | 'flow'>('isometric')
-  const [lens, setLens] = useState<Brand | 'changed' | null>(null)
+  const [lens, setLens] = useState<ShopperLens | null>(null)
   const inspector = useRef<HTMLHeadingElement>(null)
-  const days = result?.daily
+  const days = useMemo(() => normalizedDays(result), [result])
+  const baselineDays = useMemo(() => normalizedDays(baseline), [baseline])
   const index = days?.findIndex(d => d.day === day) ?? -1
   const current = days?.[index]
   const previous = days?.[index - 1]?.agents ?? emptyAgents
-  const shoppers = current?.agents ?? emptyAgents
-  const agents = shoppers.length > 180 ? shoppers.slice(0, 180) : shoppers
-  const baselineDay = baseline?.daily.find(d => d.day === day)
+  const agents = current?.agents ?? emptyAgents
+  const groups = useMemo(() => {
+    const observed = [...days ?? [],...baselineDays ?? []].flatMap(frame => frame.agents ?? [])
+    return resolveBrandGroups(report.brand_groups, observed)
+  }, [report.brand_groups, days, baselineDays])
+  const baselineDay = baselineDays?.find(d => d.day === day)
   const baselineAgents = baselineDay?.agents
   const canOverlay = !!agents.length && !!baselineAgents?.length
   const series = useMemo(() => {
-    const byDay = new Map(baseline?.daily.map(frame => [frame.day, frame.brand_share_pct]))
+    const byDay = new Map(baselineDays?.map(frame => [frame.day, frame.brand_share_pct]))
     return days?.map(frame => ({ ...frame, baseline_share_pct: frame.baseline_share_pct ?? byDay.get(frame.day) ?? null }))
-  }, [days, baseline])
+  }, [days, baselineDays])
   const from = days?.[0]?.day ?? report.window.start_day
   const to = days?.at(-1)?.day ?? report.window.follow_up_end_day
   const phase = day < report.window.start_day ? 'Pre-launch' : day <= report.window.end_day ? 'Campaign active' : 'Follow-up'
@@ -83,17 +94,33 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
   const share = current?.brand_share_pct
   const baseShare = current?.baseline_share_pct ?? baselineDay?.brand_share_pct
   const lift = share != null && baseShare != null ? share - baseShare : null
-  const before = new Map(previous.map(a => [a.shopper_id, a.brand]))
-  const switchers = agents.filter(a => before.has(a.shopper_id) && before.get(a.shopper_id) !== a.brand)
-  const byGroup = Object.fromEntries(groups.map(brand => [brand, agents.filter(a => a.brand === brand)])) as Record<Brand, Agent[]>
-  const filtered = lens === 'changed' ? switchers : lens ? byGroup[lens] : agents
-  const keepLens = filtered.some(a => a.shopper_id === selected)
-  const pool = keepLens ? filtered : agents
-  const poolName = !keepLens || !lens ? 'all shoppers' : lens === 'changed' ? 'changed preference' : brandLabels[lens]
+  const before = new Map(previous.map(a => [a.shopper_id, preferredBrand(a, groups)]))
+  const switchers = agents.filter(a => {
+    const oldBrand = before.get(a.shopper_id), newBrand = preferredBrand(a, groups)
+    return oldBrand != null && newBrand != null && oldBrand !== newBrand
+  })
+  const purchases = summarizePurchases(agents)
+  const purchaseRows: ShopperRow[] = groups.map(group => ({
+    key: 'brand/' + group.id, label: group.label, lens: { kind: 'purchased', groupId: group.id },
+    members: agents.filter(a => a.purchase === 'bought' && preferredBrand(a, groups) === group.id),
+  }))
+  const unbranded = agents.filter(a => a.purchase === 'bought' && preferredBrand(a, groups) == null)
+  if (unbranded.length) purchaseRows.push({ key:'unknown-brand', label:'Brand unavailable', members:unbranded, lens:{kind:'unknown_brand'} })
+  const noPurchaseRow: ShopperRow = { key:'no-purchase', label:'No purchase', members:agents.filter(a => a.purchase === 'no_purchase'), lens:{kind:'no_purchase'} }
+  const waitingRow: ShopperRow = { key:'waiting-subset', label:'Waiting for a promotion', members:noPurchaseRow.members.filter(a => a.waiting === true), lens:{kind:'waiting'} }
+  const unknownRow: ShopperRow = { key:'unknown', label:'Outcome unavailable', members:agents.filter(a => a.purchase !== 'bought' && a.purchase !== 'no_purchase'), lens:{kind:'unknown'} }
+  const rows = [...purchaseRows, noPurchaseRow, waitingRow, unknownRow]
+  const selectedRow = lens?.kind === 'purchased'
+    ? purchaseRows.find(row => row.lens.kind === 'purchased' && row.lens.groupId === lens.groupId)
+    : rows.find(row => row.lens.kind === lens?.kind)
+  const filtered = lens?.kind === 'changed' ? switchers : selectedRow?.members
+  const keepLens = filtered?.some(a => a.shopper_id === selected)
+  const pool = keepLens && filtered ? filtered : agents
+  const poolName = keepLens ? (lens?.kind === 'changed' ? 'changed would-be brand' : selectedRow?.label ?? 'all shoppers') : 'all shoppers'
+  const selectedShopper = agents.find(a => a.shopper_id === selected)
   const activeTrace = trace?.shopper_id === selected ? trace : null
   const memory = activeTrace?.memory_by_day[String(day)]
   const events = activeTrace?.events.filter(e => e.day <= day) ?? []
-  const decision = events.at(-1)
   const basePerson = selected && baselineAgents?.find(a => a.shopper_id === selected)
   const rivalDays = [...new Set(result?.competitor_actions.map(action => action.day))].sort((a,b) => a-b)
   const checkpoints = [
@@ -132,7 +159,19 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
     inspector.current?.focus()
   }
 
-  const mapProps = { agents, ghosts: canOverlay && ghost ? baselineAgents : undefined, selected, onSelect: (id:string) => inspect(id,null), day, playing }
+  const mapProps = { agents, groups, ghosts: canOverlay && ghost ? baselineAgents : undefined, selected, onSelect: (id:string) => inspect(id,null), day, playing }
+  function cohortRow(row: ShopperRow, subset = false) {
+    const coverageKnown = purchases.bought + purchases.noPurchase > 0
+    const amount = row.members.length
+    const rate = agents.length ? amount / agents.length * 100 : 0
+    return <button key={row.key} type="button" disabled={!amount} className={'ra-cohort' + (subset ? ' ra-cohort-subset' : '')}
+      aria-describedby="ra-group-help" onClick={() => { inspect(row.members[0].shopper_id,row.lens); focusInspector() }}>
+      <span>{row.label}</span><b>{coverageKnown || row.lens.kind === 'unknown' ? formatNumber.format(amount) :
+        <><span aria-hidden="true">—</span><span className="sr-only">Unavailable</span></>}</b>
+      {!subset && coverageKnown && <i aria-hidden="true"><i style={{width:rate+'%'}}/></i>}
+    </button>
+  }
+
   return <div className="rehearsal-arena">
     <header className="ra-heading">
       <h1>Market arena</h1>
@@ -145,8 +184,8 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
         note={profit ? <RangeNote low={profit.p10} high={profit.p90} currency highlightDownside={highlightDownside}/> : 'No estimate returned'}/>
       <Metric title="Buyer lift · full-run median" value={buyers ? formatNumber.format(buyers.p50) : 'Unavailable'}
         note={buyers ? <RangeNote low={buyers.p10} high={buyers.p90}/> : 'No estimate returned'}/>
-      <Metric title={`Brand preference · day ${day}`} value={share == null ? 'Unavailable' : formatNumber.format(share)+'%'}
-        note={lift == null ? 'At the selected day' : `${lift > 0 ? '+' : ''}${formatNumber.format(lift)} pp vs no campaign`}/>
+      <Metric title={`Would choose your brand · day ${day}`} value={share == null ? 'Unavailable' : formatNumber.format(share)+'%'}
+        note={lift == null ? 'Share of simulated shoppers' : `${lift > 0 ? '+' : ''}${formatNumber.format(lift)} pp vs no campaign`}/>
       <Metric title="Simulation day" value={String(day)} note={`${phase} · through day ${to}`}/>
     </dl>
 
@@ -169,19 +208,20 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
         </RailSection>
         <section className="ra-rail-section ra-inspector">
           <h2 id="ra-inspector-title" ref={inspector} tabIndex={-1}>Shopper inspector</h2>
-          {agents.length ? <ShopperPicker agents={agents} pool={pool} poolName={poolName} selected={selected} switchers={switchers}
+          {agents.length ? <ShopperPicker agents={agents} groups={groups} pool={pool} poolName={poolName} selected={selected} switchers={switchers}
             onChoose={id => inspect(id,lens)} onFind={id => inspect(id,null)} onClear={() => { setLens(null); select(null) }}
-            onSwitchers={() => switchers[0] && inspect(switchers[0].shopper_id,'changed')}/> : <p>No shoppers were returned for this day.</p>}
+            onSwitchers={() => switchers[0] && inspect(switchers[0].shopper_id,{kind:'changed'})}/> : <p>No shoppers were returned for this day.</p>}
+          {selectedShopper && <div className="ra-decision"><small>Day {day} purchase</small><p>{purchaseLabel(selectedShopper, groups)}</p></div>}
           {selected && (traceStatus ? <p role="status">{traceStatus}</p> : activeTrace ? <div className="ra-trace">
-            <div className="ra-decision"><small>Day {day} decision</small><p>{decision?.day === day ? decision.detail : 'No event recorded for this day.'}</p></div>
             <details key={selected} className="ra-supplement"><summary>Shopper details</summary><div className="ra-detail-copy">
               <h3>{activeTrace.segment_id}</h3>
               <dl className="ra-facts"><div><dt>Price sensitivity</dt><dd>{activeTrace.traits.price_sensitivity}</dd></div>
                 <div><dt>Loyalty</dt><dd>{activeTrace.traits.loyalty}</dd></div></dl>
               {activeTrace.explanation && <p>{activeTrace.explanation}</p>}
-              {basePerson && <p>No campaign · {brandLabels[basePerson.brand]}</p>}
+              {basePerson && <div><strong>No-campaign comparison</strong><p>{purchaseLabel(basePerson, groups)}</p>
+                <p>Would choose · {wouldBuyLabel(basePerson, groups) ?? 'Unavailable'}</p></div>}
               {memory && <dl className="ra-memory">{Object.entries(memory).map(([brand,v])=><div key={brand}><dt>{brand}</dt><dd>Awareness {v.awareness} · Attitude {v.attitude}</dd></div>)}</dl>}
-              {events.length > 0 && <details><summary>Event history ({events.length})</summary><ol>{events.map((e,i)=><li key={i}>Day {e.day} · {e.type} · {e.detail}</li>)}</ol></details>}
+              {events.length > 0 && <details><summary>Event history ({events.length})</summary><ol>{events.map((e,i)=><li key={i}>Day {e.day} · {e.detail}</li>)}</ol></details>}
             </div></details>
           </div> : <p role="status">Shopper trace unavailable.</p>)}
         </section>
@@ -197,7 +237,7 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
           twoD={<div className="ra-stage"><PixelArena {...mapProps}/></div>}
           isometric={<div className="ra-stage ra-isometric"><IsometricMarket {...mapProps}/></div>}
           flow={<WorkflowMap mode="demo" plan={choice?.label} scenario={scenarioInfo?.label ?? scenario} comparisons={comparisons}
-            evidence={view === 'flow' ? replayWorkflowEvidence({ report, result, baselineDay, frame: current, previous: days?.[index - 1],
+            evidence={view === 'flow' ? replayWorkflowEvidence({ report, result, groups, baselineDay, frame: current, previous: days?.[index - 1],
               plan: choice, scenario: scenarioInfo, selected, day, phase, lastMove }) : undefined}
             selectablePlans={availablePlans.map(p => p.label)} seedCount={result?.seeds}
             onChoosePlan={label => {
@@ -207,10 +247,10 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
             onVerdict={onVerdict}/>}/>
         {view !== 'flow' && <div className="ra-stage-caption">
           {agents.length ? <><span>{selected ? <button type="button" className="ra-text-btn" onClick={focusInspector}>Inspect {shopperName(selected)}</button> : 'Select a shopper to inspect'}</span>
-            <span>{ghost && canOverlay ? 'Overlay shows the no-campaign baseline' : 'Positions illustrate preference'}</span></> : <p>No shopper positions are available for this day.</p>}
+            <span>{ghost && canOverlay ? 'Overlay shows the no-campaign baseline' : purchases.bought + purchases.noPurchase ? 'Brand areas show purchases' : 'Purchase locations unavailable'}</span></> : <p>No shopper positions are available for this day.</p>}
         </div>}
         <div className="ra-playback">
-          <button className="ra-btn ra-inverse" aria-label={playing ? 'Pause timeline' : 'Play timeline'} disabled={!days || days.length < 2}
+          <button className="ra-btn ra-inverse" aria-label={playing ? 'Pause timeline' : day >= to ? 'Replay timeline' : 'Play timeline'} disabled={!days || days.length < 2}
             onClick={() => { if (day >= to) changeDay(from); setPlaying(!playing) }}>{playing ? 'Pause' : day >= to ? 'Replay' : 'Play'}</button>
           <div className="ra-scrub"><div><label htmlFor="ra-day">Timeline</label><span>Day {day} of {to}</span></div>
             <input id="ra-day" type="range" aria-label="Simulation day" min={from} max={to} value={day} disabled={!days || days.length < 2}
@@ -221,32 +261,38 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
           <button type="button" aria-pressed={day===m.at} key={m.label} onClick={() => jump(m.at)}>{m.label}</button>)}</div>
       </section>
 
-      <aside className="ra-rail ra-right" aria-label="Rival activity and market mix">
+      <aside className="ra-rail ra-right" aria-label="Rival activity and purchase decisions">
         <RailSection title="Rival activity">
           {lastMove ? <div className="ra-last-move"><small>Day {lastMove.day} · {lastMove.brand}</small>
             <h3>{lastMove.action}</h3>
             <details className="ra-supplement"><summary>Reason for move</summary><p>{lastMove.reason}</p></details>
           </div> : <p className="ra-quiet-event">No rival move through day {day}.</p>}
         </RailSection>
-        <RailSection title="Shopper mix">
-          <p>{agents.length} shoppers · day {day}</p>
-          <div className="ra-cohorts">{groups.map(brand => {
-            const group = byGroup[brand]
-            return <button key={brand} disabled={!group.length} className="ra-cohort" type="button" aria-describedby="ra-group-help"
-              onClick={() => { inspect(group[0].shopper_id,brand); focusInspector() }}>
-              <span>{brandLabels[brand]}</span><b>{group.length}</b>
-              <i aria-hidden="true"><i style={{width:(agents.length ? group.length/agents.length*100 : 0)+'%'}}/></i>
-            </button>
-          })}</div>
-          <p id="ra-group-help" className="ra-cohort-note">{shoppers.length>agents.length ? `${agents.length} of ${shoppers.length} shoppers shown.` : 'Choose a group to inspect a shopper.'}</p>
+        <RailSection title="Purchase decisions">
+          <p>Day {day} · {current?.agents ? formatNumber.format(agents.length) + ' simulated shoppers' : 'Shopper counts unavailable'}</p>
+          <div className="ra-purchase-mix">
+            <span className="ra-subtitle">Bought by brand{purchases.bought + purchases.noPurchase > 0 && ' · ' + formatNumber.format(purchases.bought)}</span>
+            <div className="ra-cohorts">{purchaseRows.map(row => cohortRow(row))}</div>
+            <div className="ra-cohort-outside">{cohortRow(noPurchaseRow)}
+              {purchases.noPurchase > 0 && <div className="ra-waiting-subset">
+                <small>Of those with no purchase</small>
+                {purchases.noPurchase > purchases.waitingUnknown ? <>{cohortRow(waitingRow,true)}
+                  {purchases.waitingUnknown > 0 && <small>Waiting state unavailable for {purchases.waitingUnknown}</small>}</>
+                  : <small>Waiting state unavailable</small>}
+              </div>}
+              {purchases.unknown > 0 && cohortRow(unknownRow)}
+            </div>
+          </div>
+          <p id="ra-group-help" className="ra-cohort-note">{!current?.agents ? 'Purchase decisions are unavailable for this day.' : !agents.length ? 'No shoppers in this snapshot.' : purchases.unknown === agents.length
+            ? 'This snapshot has no recorded purchase outcomes.' : 'Bars show share of all shoppers on this day. Select a group to inspect a shopper.'}</p>
         </RailSection>
       </aside>
 
       <section className="ra-trend">
-        <div className="ra-trend-header"><h2>Brand preference</h2><div className="ra-key" aria-label="Chart legend"><span>Plan</span><span>No campaign</span></div></div>
+        <div className="ra-trend-header"><h2>Would choose your brand</h2><div className="ra-key" aria-label="Chart legend"><span>Plan</span><span>No campaign</span></div></div>
         {series?.some(d => d.brand_share_pct != null) ? <TrendBoundary days={series}><Suspense fallback={<p className="ra-chart-loading" role="status">Loading preference trend…</p>}>
           <TrendChart day={day} data={series} window={report.window}/>
-        </Suspense></TrendBoundary> : <p>No preference trend was returned for this scenario.</p>}
+        </Suspense></TrendBoundary> : <p>Would-be brand choice by day is unavailable for this scenario.</p>}
       </section>
     </div>
 

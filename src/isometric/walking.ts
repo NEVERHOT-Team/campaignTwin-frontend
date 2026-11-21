@@ -1,8 +1,8 @@
-import type { Agent, Brand } from '../model'
+import type { Agent, BrandGroup, MapZone } from '../model'
+import { mapZoneFor } from '../shopper-groups'
 
 export type GroundPoint = { x: number; y: number }
 type Footprint = [left: number, near: number, right: number, far: number]
-const brands: Brand[] = ['ours', 'rival', 'market', 'waiting']
 // Ground plans of roofs, counters, fountain, trees and street furniture in the Blender model.
 const occupied: Footprint[] = [
   [-6.54, 0.96, -1.5, 4.56],
@@ -18,7 +18,7 @@ const occupied: Footprint[] = [
   [-4.58, -4.98, -4.03, -4.43],
   [3.02, -4.98, 4.62, -4.43],
 ]
-const districts: Record<Brand, Footprint[]> = {
+const districts: Record<MapZone, Footprint[]> = {
   ours: [
     [-7.65, -0.78, -1.22, 0.83],
     [-4.36, -1.35, -1.38, -0.86],
@@ -34,7 +34,7 @@ const districts: Record<Brand, Footprint[]> = {
     [-4.45, -3.58, -0.29, -1.64],
     [-7.44, -1.37, -4.47, -0.99],
   ],
-  waiting: [
+  commons: [
     [2.03, -4.91, 7.9, -3.96],
     [0.3, -3.69, 4.55, -1.64],
     [4.6, -1.44, 7.3, -0.99],
@@ -48,9 +48,9 @@ export function seedOf(id: string) {
   for (const c of id) value = Math.imul(value ^ c.charCodeAt(0), 16777619)
   return (value ^ (value >>> 17)) >>> 0
 }
-function cells(brand: Brand, spacing: number) {
+function cells(zone: MapZone, spacing: number) {
   const places: GroundPoint[] = []
-  for (const [x, y, right, far] of districts[brand]) {
+  for (const [x, y, right, far] of districts[zone]) {
     let row = 0
     for (let cy = y; cy <= far; cy += spacing * 0.91, row++) {
       for (let cx = x + (row % 2) * spacing * 0.45; cx <= right; cx += spacing) {
@@ -60,7 +60,7 @@ function cells(brand: Brand, spacing: number) {
       }
     }
   }
-  let state = seedOf(brand)
+  let state = seedOf(zone)
   for (let i = places.length - 1; i > 0; i--) {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0
     const j = state % (i + 1)
@@ -69,18 +69,21 @@ function cells(brand: Brand, spacing: number) {
   return places
 }
 const districtCells = new Map<string, GroundPoint[]>()
-export function destinations(people: Agent[], day: number) {
+export function destinations(people: Agent[], day: number, groups?: BrandGroup[]) {
   const result = new Map<string, GroundPoint>()
-  for (const brand of brands) {
-    const cohort = people
-      .filter((a) => a.brand === brand)
-      .map((a) => ({ id: a.shopper_id, seed: seedOf(a.shopper_id) }))
-      .sort((a, b) => a.seed - b.seed)
-    if (!cohort.length) continue
+  const visitors = new Map<MapZone, { id: string; seed: number }[]>()
+  for (const person of people) {
+    const zone = mapZoneFor(person, groups)
+    const cohort = visitors.get(zone) ?? []
+    cohort.push({ id: person.shopper_id, seed: seedOf(person.shopper_id) })
+    visitors.set(zone, cohort)
+  }
+  for (const [zone, cohort] of visitors) {
+    cohort.sort((a, b) => a.seed - b.seed)
     let candidates: GroundPoint[] = []
     for (const spacing of [0.62, 0.49, 0.38, 0.29, 0.2]) {
-      const key = brand + spacing
-      if (!districtCells.has(key)) districtCells.set(key, cells(brand, spacing))
+      const key = zone + spacing
+      if (!districtCells.has(key)) districtCells.set(key, cells(zone, spacing))
       candidates = districtCells.get(key)!
       if (candidates.length >= cohort.length) break
     }

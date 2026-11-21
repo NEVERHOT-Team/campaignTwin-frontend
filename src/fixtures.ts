@@ -1,9 +1,10 @@
 import { exampleCampaign, fieldIssues } from './campaign'
-import { type Agent, type Backtest, type Brand, type CampaignApi, type Candidate, type Draft, type Field, type FieldKey, type Plan, type Range, type Report, type ReviewContext, type Run, type Scenario, type Trace, brandLabels, emptyValues, fieldKeys, sampleBrief } from './model'
+import { preferredBrand } from './shopper-groups'
+import { type Agent, type Backtest, type BrandGroup, type CampaignApi, type Candidate, type Draft, type Field, type FieldKey, type Plan, type Range, type Report, type ReviewContext, type Run, type Scenario, type Trace, defaultBrandGroups, emptyValues, fieldKeys, sampleBrief } from './model'
 
 const scenarioList: Scenario[] = [
   { scenario_id: 'S1', label: 'Quiet market', description: 'Rivals keep their usual pricing.' },
-  { scenario_id: 'S2', label: 'Price match', description: 'The discounter matches the launch voucher.' },
+  { scenario_id: 'S2', label: 'Price match', description: 'The rival matches the launch voucher.' },
   { scenario_id: 'S3', label: 'Discount war', description: 'A stronger rival voucher pulls price-sensitive shoppers away.' },
 ]
 const pendingHistory: Backtest = {
@@ -53,22 +54,51 @@ function candidateOf(review: ReviewContext, draft: Draft, discount = Math.max(1,
   }
 }
 
-function brandAt(i: number, day: number, scenario: string, alternative: boolean): Brand {
-  const n = ((i * 73 + 19) % 127) / 127
-  const uptake = Math.min(1, day / 7) * Math.max(0.25, 1 - Math.max(0, day - 14) / 18)
-  const response = scenario === 'S3' ? 0.19 : scenario === 'S2' ? 0.10 : 0
-  const ours = .22 + (alternative ? .22 : .26) * uptake - (day >= 5 ? response * (alternative ? .36 : 1) * uptake : 0)
-  if (n < ours) return 'ours'
-  if (n < ours + .20 + (day >= 5 ? response * uptake : 0)) return 'rival'
-  return n > .88 ? 'waiting' : 'market'
+const shopperIds = Array.from({ length: 120 }, (_, i) => 'shopper-' + String(i + 1).padStart(3, '0'))
+
+function dailyShoppers(groups: BrandGroup[], day: number, scenario: string, alternative: boolean, baseline: boolean, window: Report['window']): Agent[] {
+  if (!groups.length) return []
+  const campaignDay = baseline ? 0 : Math.max(0, day - window.start_day + 1)
+  const daysSinceOffer = day - window.end_day
+  const uptake = Math.min(1, campaignDay / 7) * Math.max(.25, 1 - Math.max(0, daysSinceOffer) / 18)
+  const response = campaignDay < 5 ? 0 : scenario === 'S3' ? .19 : scenario === 'S2' ? .10 : 0
+  const focal = .22 + (alternative ? .22 : .26) * uptake - response * (alternative ? .36 : 1) * uptake
+  const rival = .20 + response * uptake
+  const roleShare = { focal, competitor: rival, market: 1 - focal - rival }
+  const countByRole = { focal: 0, competitor: 0, market: 0 }
+  for (const group of groups) countByRole[group.role]++
+  let totalWeight = 0
+  const distribution = groups.map(group => {
+    totalWeight += roleShare[group.role] / countByRole[group.role]
+    return { group, upper: totalWeight }
+  })
+  const promotion = !baseline && day >= window.start_day && day <= window.end_day
+  const campaignLength = window.end_day - window.start_day + 1
+
+  return shopperIds.map((shopper_id, index) => {
+    // Separate draws keep preference changes distinct from purchase decisions.
+    // The same day and shopper get the same purchase draw in each paired plan.
+    const preferenceDraw = ((index * 73 + 19) % 127) / 127 * totalWeight
+    const preferred = distribution.find(entry => preferenceDraw < entry.upper)!.group
+    const purchaseDraw = ((index * 61 + day * 37 + 11) % 127) / 127
+    // The sample strategist targets value seekers (the same segment recorded in the trace).
+    const inAudience = !alternative || (index + 1) % 3 === 1
+    const exposureDay = !baseline && inAudience ? window.start_day + (index * 5) % campaignLength : undefined
+    const promotion_exposed = day === exposureDay
+    const dealProne = (index * 17 + 7) % 19 < 5
+    const waitingForOffer = dealProne && exposureDay !== undefined && day > exposureDay
+      && daysSinceOffer > 0 && daysSinceOffer <= 4 + index % 11
+    const regularThreshold = .32 + (promotion && inAudience && preferred.role === 'focal' ? .12 : 0)
+      + (promotion && preferred.role === 'competitor' ? response / 2 : 0)
+    const threshold = waitingForOffer ? regularThreshold * .35 : regularThreshold
+    if (purchaseDraw < threshold) return { shopper_id, brand: preferred.id, purchase: 'bought', promotion_exposed }
+    return { shopper_id, brand: preferred.id, purchase: 'no_purchase', waiting: waitingForOffer, promotion_exposed }
+  })
 }
 
-const shopperIds = Array.from({ length: 120 }, (_, i) => 'shopper-' + String(i + 1).padStart(3, '0'))
-const baselineAgents: Agent[] = shopperIds.map((shopper_id, i) => ({ shopper_id, brand: brandAt(i, 0, 'S1', false) }))
-function brandShare(agents: Agent[]) {
-  return Math.round(1000 * agents.filter(a => a.brand === 'ours').length / agents.length) / 10
+function brandShare(agents: Agent[], focalIds: Set<string>) {
+  return agents.length && focalIds.size ? Math.round(1000 * agents.filter(agent => focalIds.has(agent.brand)).length / agents.length) / 10 : null
 }
-const baselineShare = brandShare(baselineAgents)
 
 // Reuse the same 20 synthetic seed shocks for paired plans. Both the profit
 // range and the chance of hitting the target must describe these same samples.
@@ -95,8 +125,15 @@ function reportOf(review: ReviewContext, draft: Draft, source: 'example' | 'subm
   ]
   const factor = Math.max(.3, Math.min(3, original.total_budget_thb / 20000))
   const goal = 5000
+  const brandGroups = structuredClone(defaultBrandGroups)
+  const focalIds = new Set(brandGroups.filter(group => group.role === 'focal').map(group => group.id))
+  const window = { start_day: original.start_day, end_day: original.end_day, follow_up_end_day: original.end_day + 14 }
+  const baselineDays = Array.from({ length: window.follow_up_end_day + 1 }, (_, day) => {
+    const agents = dailyShoppers(brandGroups, day, 'S1', false, true, window)
+    return { day, agents, share: brandShare(agents, focalIds) }
+  })
   return {
-    plans, scenarios: scenarioList,
+    plans, scenarios: scenarioList, brand_groups: brandGroups,
     inputs: structuredClone({ source, brief: draft.brief?.trim(), campaign: draft.campaign, original_plan: original }),
     results: scenarioList.flatMap((s, j) => plans.map(plan => {
       const alternate = plan.role === 'alternative'
@@ -115,15 +152,16 @@ function reportOf(review: ReviewContext, draft: Draft, source: 'example' | 'subm
         metric_unavailable_reasons: { roas: 'Voucher-only scenario. No attributed media spend.' },
         guardrails: baseline ? [] : [{ name: 'Discount cap', pass: (plan.discount_pct ?? 0) <= 25 }, { name: 'Budget cap', pass: true }, { name: 'Unit contribution floor', pass: true }],
         goal_attainment: baseline ? null : simulation.attainment,
-        daily: Array.from({ length: 29 }, (_, day) => {
-          const agents = baseline ? baselineAgents : shopperIds.map((shopper_id, i) => ({ shopper_id, brand: brandAt(i, day, s.scenario_id, alternate) }))
-          return { day, agents, brand_share_pct: brandShare(agents), baseline_share_pct: baselineShare }
+        daily: baselineDays.map(frame => {
+          const agents = baseline ? frame.agents : dailyShoppers(brandGroups, frame.day, s.scenario_id, alternate, false, window)
+          return { day: frame.day, agents, brand_share_pct: baseline ? frame.share : brandShare(agents, focalIds), baseline_share_pct: frame.share }
         }),
-        competitor_actions: j && !baseline ? [{ day: 5, brand: 'Discounter', action: j === 2 ? 'Undercuts the voucher' : 'Matches the voucher', value: j === 2 ? Math.min(100, (plan.discount_pct ?? original.discount_pct) + 5) : plan.discount_pct ?? original.discount_pct, reason: 'The rival responds after detecting the campaign offer.' }] : [],
+        competitor_actions: j && !baseline ? [{ day: 5, brand: 'Demo rival', action: j === 2 ? 'Undercuts the voucher' : 'Matches the voucher', value: j === 2 ? Math.min(100, (plan.discount_pct ?? original.discount_pct) + 5) : plan.discount_pct ?? original.discount_pct, reason: 'The rival responds after detecting the campaign offer.' }] : [],
       }
     })),
-    window: { start_day: 1, end_day: 14, follow_up_end_day: 28 }, goal_thb: goal,
+    window, goal_thb: goal,
     assumptions: [...review.assumptions,
+      'In this fixture, some shoppers who saw the promotion wait for another offer after it ends. Their daily purchase chance falls during this follow-up period.',
       'The demo uses preset plan and rival responses. Profit samples scale with the budget between ฿6,000 and ฿60,000. Budgets outside that range use the nearest example.'], candidate,
     recommendation: { plan_id: candidate?.plan.plan_id ?? original.plan_id, summary: candidate ? 'The targeted voucher holds up better under rival pressure.' : 'Review the downside across scenarios before choosing the original plan.' },
     confidence: { label: 'Illustrative', reason: 'Synthetic outcomes and no verified held-out result.' },
@@ -156,29 +194,37 @@ function traceFrom(report: Report, id: string, day: number, scenario: string, pl
   const agent = row?.daily.find(d => d.day === day)?.agents?.find(a => a.shopper_id === id)
   if (!row || !agent) throw new Error('A trace is unavailable for this shopper and day.')
   const n = Number(id.split('-').at(-1))
-  const brand = brandLabels[agent.brand]
+  const groups = report.brand_groups ?? defaultBrandGroups
+  const labels = new Map(groups.map(group => [group.id, group.label]))
+  const labelFor = (id: string) => labels.get(id) ?? id
+  const selectedBrand = preferredBrand(agent, groups)
   const events: Trace['events'] = []
-  let previous: Brand | undefined
+  let previous: string | undefined
   for (const frame of row.daily) {
     if (frame.day > day) break
-    const current = frame.agents?.find(a => a.shopper_id === id)?.brand
+    const current = frame.agents?.find(person => person.shopper_id === id)
     if (!current) continue
-    const changed = previous !== undefined && previous !== current
-    if (changed || previous === undefined || frame.day === day) {
-      const label = brandLabels[current]
-      const detail = changed && previous !== undefined ? `${brandLabels[previous]} → ${label}.`
-        : current === 'waiting' ? 'No brand selected.' : `Preference: ${label}.`
-      events.push({ day: frame.day, type: changed ? 'switched' : current === 'waiting' ? 'ignored' : 'exposed',
-        brand: label, channel: 'Shopee', detail })
+    const preference = preferredBrand(current, groups)
+    const brand = preference && labelFor(preference)
+    const switched = previous !== undefined && preference !== undefined && previous !== preference
+    const change = switched ? labelFor(previous!) + ' → ' + brand + '. ' : ''
+    const type = switched ? 'switched' : current.purchase === 'bought' ? 'purchased' : current.purchase === 'no_purchase' ? 'no_purchase' : 'observed'
+    let detail = brand ? 'Preferred ' + brand + '. Purchase not recorded.' : 'No brand preference or purchase recorded.'
+    if (current.purchase === 'bought') detail = brand ? 'Bought from ' + brand + '.' : 'Made a purchase.'
+    else if (current.purchase === 'no_purchase') {
+      detail = 'No purchase today.' + (brand ? ' Preferred ' + brand + '.' : '') + (current.waiting ? ' Waiting for another offer after the promotion ended.' : '')
     }
-    previous = current
+    if (current.promotion_exposed) detail += ' Saw the campaign offer today.'
+    events.push({ day: frame.day, type, brand: brand ?? 'Unrecorded', channel: 'Shopee',
+      purchase: current.purchase, waiting: current.waiting, promotion_exposed: current.promotion_exposed, detail: change + detail })
+    previous = preference
   }
   return {
     shopper_id: id, segment_id: n % 3 === 0 ? 'Brand loyal' : n % 3 === 1 ? 'Value seeker' : 'Category explorer',
     traits: { price_sensitivity: 40 + n % 52, loyalty: 25 + n * 3 % 65 },
-    memory_by_day: { [day]: { [brand]: { awareness: Math.min(100, 30 + day * 3 + n % 19), attitude: 35 + n % 53 } } },
+    memory_by_day: { [day]: selectedBrand ? { [labelFor(selectedBrand)]: { awareness: Math.min(100, 30 + day * 3 + n % 19), attitude: 35 + n % 53 } } : {} },
     events,
-    explanation: 'This replay records preference changes. Individual purchase motives are unavailable.',
+    explanation: 'The fixture records one purchase decision per shopper each day. A preference can persist on days without a purchase.',
   }
 }
 
@@ -244,6 +290,6 @@ export const fixtureApi: CampaignApi = {
   },
   async replay() {
     await wait(140)
-    return { replay_id: 'market-snapshot', source_class: 'synthetic_fixture', fixture_version: '1', run: { run_id: 'fixture-market', status: 'complete', progress: null, report: replayReport() }, historical_check: pendingHistory }
+    return { replay_id: 'market-snapshot', source_class: 'synthetic_fixture', fixture_version: '2', run: { run_id: 'fixture-market', status: 'complete', progress: null, report: replayReport() }, historical_check: pendingHistory }
   },
 }

@@ -56,13 +56,16 @@ export function ArenaViews({ twoD, isometric, flow, onViewChange }: Props) {
     </div>
     {views.map(({ id }) => <div key={id} role="tabpanel" tabIndex={0} hidden={view !== id}
       aria-labelledby={group + '-tab-' + id} id={group + '-panel-' + id} className="arena-view-panel">
-      {view === id && (id === 'flow' ? flow : id === '2d' ? twoD :
-        <SceneBoundary fallback={<div className="scene-placeholder" role="status">
-          <p>The isometric market couldn’t load.</p>
-          <button type="button" className="ra-btn" onClick={() => { choose('2d'); buttons.current[1]?.focus() }}>Open 2D map</button>
-        </div>}>
-          <Suspense fallback={<div className="scene-placeholder" role="status">Opening isometric market…</div>}>{isometric}</Suspense>
-        </SceneBoundary>)}
+      {view === id && (id === 'flow' ? flow : <SceneBoundary fallback={<div className="scene-placeholder" role="status">
+        <p>{id === 'isometric' ? 'The isometric market couldn’t load.' : 'The 2D map couldn’t load.'}</p>
+        <button type="button" className="ra-btn" onClick={() => {
+          const other = id === 'isometric' ? 1 : 0
+          choose(views[other].id)
+          buttons.current[other]?.focus()
+        }}>{id === 'isometric' ? 'Open 2D map' : 'Open isometric map'}</button>
+      </div>}>
+        <Suspense fallback={<div className="scene-placeholder" role="status">Opening market…</div>}>{id === '2d' ? twoD : isometric}</Suspense>
+      </SceneBoundary>)}
     </div>)}
   </div>
 }

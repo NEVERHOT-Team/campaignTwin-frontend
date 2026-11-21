@@ -1,10 +1,13 @@
 import type { WorkflowEvidence } from './WorkflowMap'
-import { brandLabels, money, type Day, type Move, type Report, type Result } from './model'
+import { money, type BrandGroup, type Day, type Move, type Report, type Result } from './model'
+import { purchaseLabel, wouldBuyLabel } from './shopper-observation'
+import { preferredBrand, summarizePurchases } from './shopper-groups'
 import { attainmentRate, count, percent } from './verdict-values'
 
 type ReplayScope = {
   report: Report
   result?: Result
+  groups: BrandGroup[]
   baselineDay?: Day
   frame?: Day
   previous?: Day
@@ -24,7 +27,7 @@ function share(value: number | null | undefined) {
   return value == null ? undefined : count.format(value) + '%'
 }
 
-export function replayWorkflowEvidence({ report, result, baselineDay, frame, previous, plan, scenario, selected, day, phase, lastMove }: ReplayScope): WorkflowEvidence {
+export function replayWorkflowEvidence({ report, result, groups, baselineDay, frame, previous, plan, scenario, selected, day, phase, lastMove }: ReplayScope): WorkflowEvidence {
   const inputs = report.inputs
   const campaign = inputs?.campaign
   const original = inputs?.original_plan
@@ -32,9 +35,12 @@ export function replayWorkflowEvidence({ report, result, baselineDay, frame, pre
   const terms = original && plan?.plan_id === original.plan_id ? original
     : report.candidate?.plan.plan_id === plan?.plan_id ? report.candidate?.plan : undefined
   const baselineShare = frame?.baseline_share_pct ?? baselineDay?.brand_share_pct
-  const prior = new Map(previous?.agents?.map(shopper => [shopper.shopper_id, shopper.brand]))
-  const comparable = frame?.agents?.filter(shopper => prior.has(shopper.shopper_id))
-  const changed = comparable?.filter(shopper => prior.get(shopper.shopper_id) !== shopper.brand)
+  const prior = new Map(previous?.agents?.map(shopper => [shopper.shopper_id, preferredBrand(shopper, groups)]))
+  const comparable = frame?.agents?.filter(shopper => prior.get(shopper.shopper_id) != null && preferredBrand(shopper, groups) != null)
+  const changed = comparable?.filter(shopper => prior.get(shopper.shopper_id) !== preferredBrand(shopper, groups))
+  const purchases = frame?.agents ? summarizePurchases(frame.agents) : undefined
+  const hasPurchases = purchases != null && purchases.bought + purchases.noPurchase > 0
+  const hasWaiting = purchases != null && purchases.noPurchase > purchases.waitingUnknown
   const shopper = frame?.agents?.find(person => person.shopper_id === selected)
   const comparisonRows = report.plans.flatMap(option => {
     const row = report.results.find(value => value.plan_id === option.plan_id && value.scenario_id === scenario?.scenario_id)
@@ -59,8 +65,8 @@ export function replayWorkflowEvidence({ report, result, baselineDay, frame, pre
   if (lastMove) observations.push({ day: lastMove.day, label: lastMove.brand, value: lastMove.action + '. ' + lastMove.reason })
   if (frame?.agents) {
     const response = comparable?.length && changed && previous
-      ? changed.length + ' of ' + comparable.length + ' tracked shoppers changed preference since day ' + previous.day + '.'
-      : frame.agents.length + ' shopper preferences recorded.'
+      ? changed.length + ' of ' + comparable.length + ' shoppers with a known would-be brand on both days changed their choice since day ' + previous.day + '.'
+      : frame.agents.length + ' shoppers in the recorded snapshot.'
     observations.push({ day, label: 'Shopper response', value: response })
   }
 
@@ -100,11 +106,15 @@ export function replayWorkflowEvidence({ report, result, baselineDay, frame, pre
     },
     simulation: {
       stamp: 'Day ' + day,
-      summary: `${phase} on day ${day}. ${frame?.agents ? count.format(frame.agents.length) + ' shoppers have recorded preferences.' : 'No individual preferences were returned for this day.'}`,
+      summary: `${phase} on day ${day}. ${frame?.agents ? count.format(frame.agents.length) + ' simulated shoppers in the daily snapshot.' : 'Individual shopper observations are unavailable.'}`,
       facts: facts([
-        ['Your brand', share(frame?.brand_share_pct)], ['No-campaign preference', share(baselineShare)],
-        ['Prefer your brand', frame?.agents && count.format(frame.agents.filter(person => person.brand === 'ours').length) + ' shoppers'],
-        ['Selected shopper', shopper && shopper.shopper_id + ' · ' + brandLabels[shopper.brand]],
+        ['Would choose your brand', share(frame?.brand_share_pct)], ['No-campaign would-be share', share(baselineShare)],
+        ['Recorded purchases', hasPurchases && frame?.agents ? purchases.bought + ' of ' + frame.agents.length + ' shoppers' : 'Unavailable'],
+        ['Recorded no purchase', hasPurchases && frame?.agents ? purchases.noPurchase + ' of ' + frame.agents.length + ' shoppers' : 'Unavailable'],
+        ['Waiting for a promotion', hasWaiting ? purchases.waiting + ' confirmed among ' + purchases.noPurchase + ' non-buyers' + (purchases.waitingUnknown ? ' · ' + purchases.waitingUnknown + ' waiting states unavailable' : '') : undefined],
+        ['Purchase outcome unavailable', purchases?.unknown ? purchases.unknown + ' shoppers' : undefined],
+        ['Selected shopper', shopper && shopper.shopper_id + ' · ' + purchaseLabel(shopper, groups)],
+        ['Selected shopper would choose', shopper && wouldBuyLabel(shopper, groups)],
       ]),
       events: observations.sort((a, b) => a.day - b.day).map(event => ({ label: 'Day ' + event.day + ' · ' + event.label, value: event.value })),
       notes: !lastMove && result ? ['No rival move recorded through day ' + day + '.'] : undefined,

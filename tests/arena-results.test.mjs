@@ -68,6 +68,76 @@ test('the displayed no-campaign percentage matches the baseline shoppers for eve
   }
 })
 
+test('each demo shopper has both a brand choice and a separate daily purchase outcome', () => {
+  const groups = new Set(report.brand_groups.map(group => group.id))
+  assert.deepEqual(groups, new Set(['ours', 'rival', 'market']))
+  let sawWaiting = false
+  for (const result of report.results) {
+    for (const frame of result.daily) {
+      const buyers = frame.agents.filter(shopper => shopper.purchase === 'bought')
+      const nonbuyers = frame.agents.filter(shopper => shopper.purchase === 'no_purchase')
+      assert.equal(buyers.length + nonbuyers.length, frame.agents.length)
+      assert.equal(new Set(frame.agents.map(shopper => shopper.shopper_id)).size, frame.agents.length)
+      assert.ok(frame.agents.every(shopper => groups.has(shopper.brand)))
+      assert.ok(buyers.every(shopper => !shopper.waiting))
+      assert.ok(nonbuyers.every(shopper => typeof shopper.waiting === 'boolean'))
+      if (frame.day <= report.window.end_day || report.plans.find(plan => plan.plan_id === result.plan_id).role === 'baseline') {
+        assert.ok(nonbuyers.every(shopper => !shopper.waiting), 'Waiting requires a previous promotion that has ended')
+      }
+      sawWaiting ||= nonbuyers.some(shopper => shopper.waiting)
+    }
+  }
+  assert.ok(sawWaiting, 'The demo exercises waiting as a subset of non-buyers')
+})
+
+test('custom group labels, empty groups, and missing shopper outcomes survive replay inspection', async () => {
+  const { resolveBrandGroups, preferredBrand, summarizePurchases } = await vite.ssrLoadModule('/src/shopper-groups.ts')
+  const configured = [
+    { id: '751', label: 'Example brand', color: '#e6b23d', role: 'focal' },
+    { id: 'own-label', label: 'Example competitor', color: '#e67e57', role: 'competitor' },
+  ]
+  const people = [
+    { shopper_id: 'a', brand: '751', purchase: 'bought' },
+    { shopper_id: 'b', brand: 'other-group', purchase: 'no_purchase', waiting: true },
+    { shopper_id: 'c', brand: 'waiting' }, // Old replay placeholder without an outcome.
+    { shopper_id: 'd', brand: '751' },
+    { shopper_id: 'e', brand: '751', purchase: 'no_purchase', waiting: false },
+    { shopper_id: 'f', brand: '751', purchase: 'no_purchase' },
+  ]
+  const groups = resolveBrandGroups(configured, people)
+  assert.deepEqual(groups.slice(0, 2), configured)
+  assert.deepEqual(groups.map(group => group.id), ['751', 'own-label', 'other-group'])
+  assert.equal(preferredBrand(people[2], groups), undefined)
+  assert.equal(preferredBrand(people[1], groups), 'other-group')
+  assert.deepEqual(summarizePurchases(people), { bought: 1, noPurchase: 3, waiting: 1, waitingUnknown: 1, unknown: 2 })
+  assert.deepEqual(resolveBrandGroups([], []), [])
+})
+
+test('the map allocates a distinct shop to each group even when several groups share a role', async () => {
+  const { marketLayout } = await vite.ssrLoadModule('/src/pixel-market-art.ts')
+  const catalog = ['ours', 'rival-a', 'rival-b', 'rival-c', 'other'].map((id, i) => ({
+    id, label: id, role: i === 0 ? 'focal' : i === 4 ? 'market' : 'competitor', color: '#dadada',
+  }))
+  for (const groups of [[], catalog.slice(0, 1), catalog, [...catalog].reverse()]) {
+    const layout = marketLayout(groups)
+    assert.deepEqual(layout.sites.map(site => site.group.id), groups.map(group => group.id))
+    assert.equal(new Set(layout.sites.map(site => site.x + ',' + site.y)).size, groups.length)
+    assert.ok(layout.sites.every(site => site.courts.every(bounds => bounds[3] <= layout.height)))
+    assert.ok(layout.commons.length > 0)
+  }
+})
+
+test('a conflicting duplicate observation cannot count a shopper twice', async () => {
+  const { uniqueShoppers } = await vite.ssrLoadModule('/src/shopper-snapshot.ts')
+  const { summarizePurchases } = await vite.ssrLoadModule('/src/shopper-groups.ts')
+  const buyer = { shopper_id: 'same-person', brand: 'ours', purchase: 'bought' }
+  const nonbuyer = { ...buyer, purchase: 'no_purchase', waiting: true }
+  const canonical = uniqueShoppers([buyer, buyer, nonbuyer])
+  assert.equal(canonical.length, 1)
+  assert.equal(canonical[0].purchase, undefined)
+  assert.deepEqual(summarizePurchases(canonical), { bought: 0, noPurchase: 0, waiting: 0, waitingUnknown: 0, unknown: 1 })
+})
+
 test('a shopper switches only on a recorded change, including switches away from the rival', async () => {
   const plan = report.plans.find(p => p.role === 'original')
   const row = report.results.find(r => r.plan_id === plan.plan_id && r.scenario_id === 'S3')
@@ -82,6 +152,20 @@ test('a shopper switches only on a recorded change, including switches away from
   assert.equal(second.events.at(-1).type, 'switched')
   assert.match(second.events.at(-1).detail, /→/)
   assert.ok(second.events.every(event => event.day <= today.day))
+})
+
+test('a shopper who waits still has a preferred group and their trace preserves both facts', async () => {
+  const plan = report.plans.find(p => p.role === 'original')
+  const result = report.results.find(row => row.plan_id === plan.plan_id && row.scenario_id === 'S3')
+  const frame = result.daily.find(day => day.agents.some(shopper => shopper.waiting))
+  const shopper = frame.agents.find(person => person.waiting)
+  const group = report.brand_groups.find(option => option.id === shopper.brand)
+  const trace = await fixtureApi.shopper(run.run_id, shopper.shopper_id, frame.day, result.scenario_id, plan.plan_id)
+  const event = trace.events.at(-1)
+  assert.equal(event.day, frame.day)
+  assert.equal(event.brand, group.label)
+  assert.equal(event.purchase, 'no_purchase')
+  assert.equal(event.waiting, true)
 })
 
 test('rate, lift, loss and missing-denominator formatting respect the reported units', () => {

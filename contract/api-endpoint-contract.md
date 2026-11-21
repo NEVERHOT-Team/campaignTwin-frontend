@@ -2,6 +2,8 @@
 
 **Current frontend integration target.** Big’s `docs/campaigntwin-api-v1.openapi.yaml` at backend `dev@0c3e6a2` is implemented. The ten operations cover review creation and resume, revisions, approval, run submission and status, reports, frozen inputs, decision checks and historical comparisons. The frontend handoff records planner-owned inputs, backend-derived fields, the single synthetic catalog choice and aggregate Arena limits. [Frontend v1 handoff](../docs/backend-v1-handoff.md) · [Pinned OpenAPI](https://github.com/NEVERHOT-Team/campaignTwin-backend/blob/0c3e6a2/docs/campaigntwin-api-v1.openapi.yaml)
 
+The weekly engine distinguishes three purchase groups and tracks waiting among non-buyers. The published v1 report has no weekly group observations. The frontend proposal for Big specifies group IDs, displayed names, counts and their denominators. [Weekly Arena handoff](../docs/backend-v1-handoff.md#shopper-groups-and-weekly-counts-for-big)
+
 ## Earlier Demo 1 proposal
 
 The remaining sections preserve the original frontend proposal and the synthetic demo’s design context. Its route names and example payloads predate Big’s v1 draft.

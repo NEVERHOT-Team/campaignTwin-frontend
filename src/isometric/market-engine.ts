@@ -1,4 +1,5 @@
-import { brandColors, type Agent, type Brand } from '../model'
+import { brandColors, type Agent, type BrandGroup, type MapZone } from '../model'
+import { mapZoneFor } from '../shopper-groups'
 import projection from './assets/projection.json'
 import eastDepth from './assets/east-depth.png'
 import westDepth from './assets/west-depth.png'
@@ -9,6 +10,7 @@ export type Angle = keyof typeof projection
 export type MarketProps = {
   agents?: Agent[]
   ghosts?: Agent[]
+  groups?: BrandGroup[]
   selected?: string | null
   onSelect?: (id: string) => void
   day?: number
@@ -16,7 +18,7 @@ export type MarketProps = {
 }
 type Walker = {
   id: string
-  brand: Brand
+  zone: MapZone
   seed: number
   points: GroundPoint[]
   lengths: number[]
@@ -27,11 +29,11 @@ type Walker = {
 type ScreenPoint = { x: number; y: number; depth: number }
 type ScreenShopper = ScreenPoint & { id: string }
 const empty: Agent[] = []
-const cols: Record<Brand, number> = { ours: 0, rival: 1, market: 2, waiting: 3 }
+const wardrobe: Record<MapZone, number> = { ours: 0, rival: 1, market: 2, commons: 3 }
 const width = 960,
   height = 600
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(v, lo))
-function project(p: GroundPoint, view: Angle, z = 0): ScreenPoint {
+export function project(p: GroundPoint, view: Angle, z = 0): ScreenPoint {
   const { origin, x, y, z: up } = projection[view]
   const at = (i: number) =>
     origin[i] + (x[i] - origin[i]) * p.x + (y[i] - origin[i]) * p.y + (up[i] - origin[i]) * z
@@ -179,7 +181,7 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
       const facingRight = row
         ? position.dx + (view === 'east' ? 0.67 : -0.67) * position.dy > 0
         : Boolean((w.seed >>> 6) % 2)
-      const variant = cols[w.brand] * 3 + (w.seed % 3),
+      const variant = wardrobe[w.zone] * 3 + (w.seed % 3),
         column = facingRight ? 11 - variant : variant
       const visible = (screenY: number, screenX = foot.x) => {
         const above = clamp((foot.y - screenY) / size, 0, 0.76)
@@ -215,7 +217,7 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
           c.restore()
         }
       } else {
-        c.fillStyle = brandColors[w.brand]
+        c.fillStyle = brandColors[w.zone]
         c.beginPath()
         c.arc(foot.x, foot.y - 6, 4.3, 0, Math.PI * 2)
         c.fill()
@@ -283,11 +285,11 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
   function update(next: MarketProps, angle: Angle) {
     const agents = next.agents ?? empty,
       day = next.day ?? 0
-    const changed = agents !== source || day !== lastDay
+    const changed = agents !== source || day !== lastDay || props.groups !== next.groups
     if (changed) {
       const now = performance.now()
       const old = new Map(walkers.map((w) => [w.id, interpolate(w, now)]))
-      const points = destinations(agents, day)
+      const points = destinations(agents, day, next.groups)
       walkers = agents.flatMap((a) => {
         const dest = points.get(a.shopper_id)
         if (!dest) return []
@@ -298,7 +300,7 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
         return [
           {
             id: a.shopper_id,
-            brand: a.brand,
+            zone: mapZoneFor(a, next.groups),
             seed: seedOf(a.shopper_id),
             points: path,
             lengths,
@@ -313,10 +315,10 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
     }
     if (changed || next.ghosts !== ghostSource) {
       ghostSource = next.ghosts
-      ghosts = ghostSource ? destinations(ghostSource, day) : undefined
-      const live = new Map(agents.map((a) => [a.shopper_id, a.brand]))
+      ghosts = ghostSource ? destinations(ghostSource, day, next.groups) : undefined
+      const live = new Map(walkers.map((w) => [w.id, w.zone]))
       different = new Set(
-        ghostSource?.filter((g) => live.get(g.shopper_id) !== g.brand).map((g) => g.shopper_id),
+        ghostSource?.filter((g) => live.get(g.shopper_id) !== mapZoneFor(g, next.groups)).map((g) => g.shopper_id),
       )
     }
     if (angle !== view) {

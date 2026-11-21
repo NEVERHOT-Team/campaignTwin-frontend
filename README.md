@@ -30,7 +30,7 @@ The backend owns the exact catalog match, cost basis, evaluation settings and re
 
 ## Use the offline demo
 
-**Demo arena** opens an independent synthetic rehearsal. Click a shopper on the market floor, inspect a switcher or search by ID. Choose a rival scenario at the top of the page. Use **2D map** for an overhead view, or **Workflow** to jump to the next checkpoint. The map, timeline, shopper inspector and chart use the same replay frame. Open the Verdict to compare the median and downside, repeat-purchase rate and goal attainment. Use **Back to planner** to return to the connected review. A direct link to the sample Arena is `/?mode=demo&view=arena`.
+**Demo arena** opens an independent synthetic rehearsal. Click a shopper on the market floor, inspect a switcher or search by ID. Choose a rival scenario at the top of the page. Use **2D map** for an overhead view, or **Workflow** to jump to the next checkpoint. The map and inspector show purchases by group for the selected day. A shopper who skipped a purchase can still prefer a brand. The trend chart measures that preference across the full sample, and the Arena identifies the subset of non-buyers waiting for a promotion. Open the Verdict to compare the median and downside, repeat-purchase rate and goal attainment. Use **Back to planner** to return to the connected review. A direct link to the sample Arena is `/?mode=demo&view=arena`.
 
 ```sh
 npm test

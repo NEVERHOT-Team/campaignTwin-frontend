@@ -162,7 +162,7 @@ def shop(x,y,w,d,our):
     box('door panel',x,front-.15,.51,.49,.035,.40,roofColor)
     oval('brass doorknob',x+.23,front-.2,.99,.04,.04,.04,'E6B875')
     box('shop name board',x,front-.26,h-.04,w-.18,.22,.46,trim)
-    plaque('YOUR BRAND' if our else 'DISCOUNTER',x,front-.38,h-.033,.32,'FFF0C9')
+    plaque('MARKET HALL' if our else 'ARCADE',x,front-.38,h-.033,.32,'FFF0C9')
     canopy(x,front-.48,1.93,w+.12,1.00,roofColor)
     for i in range(3):
         sx=x+(i-1)*w*.28
@@ -179,26 +179,33 @@ def shop(x,y,w,d,our):
             box('window lintel',xx,yy,1.90,.13,.6,.09,'E7CDA6')
         box('side cornice',xx,y,2.08,.13,d,.12,'ECCFA6')
 
-def pavilion(x,y,waiting):
-    w,d=(3.12,1.58) if waiting else (2.86,1.62)
-    color='799D86' if waiting else '997FA8'
-    edge='496D61' if waiting else '70597B'
+def pavilion(x,y,garden):
+    w,d=(3.12,1.58) if garden else (2.86,1.62)
+    color='799D86' if garden else '997FA8'
+    edge='496D61' if garden else '70597B'
     box('pavilion plinth',x,y,.1,w+.20,d+.25,.2,'C6AE8E',.07)
     for sx in (-1,1):
         for sy in (-1,1):
             xx,yy=x+sx*(w/2-.16),y+sy*(d/2-.15)
             box('painted pavilion post',xx,yy,.99,.13,.13,1.88,edge)
             box('column base',xx,yy,.25,.22,.22,.20,'D7BCA0')
-    roof(x,y,1.95,w+.36,d+.39,.65,color,edge)
-    if waiting:
-        bench(x,y+.13,w*.71)
-        box('station sign',x,y-d*.5-.23,1.72,w*.76,.12,.32,edge)
-        plaque('UNDECIDED',x,y-d*.5-.302,1.73,.21,'FFEAC7')
-        box('timetable frame',x+w*.32,y+.44,1.14,.50,.09,.78,'836D53')
-        box('timetable',x+w*.32,y+.38,1.14,.38,.04,.65,'E4D7B4')
-        for j in range(3):
-            box('schedule rule',x+w*.32,y+.35,1.30-j*.12,.25,.016,.025,'728980')
+    if garden:
+        # Slatted public pergola, with no awning, counters or merchandise.
+        for side in (-1,1):
+            box('pergola beam',x,y+side*(d/2-.15),1.98,w+.23,.16,.20,edge)
+        for i in range(9):
+            xx=x+(i-4)*w/8
+            box('pergola rafter',xx,y,2.14,.094,d+.37,.16,'B6A17B')
+        for i in range(5):
+            xx=x-w*.51+i*.27
+            oval('creeping jasmine',xx,y+d*.30,2.22,.33,.34,.14,
+                 ['66835F','799962','809B70','92A975','779466'][i],2)
+            oval('hanging jasmine',xx,y+d*.48,2.10,.21,.11,.24-i*.02,'81A06E',2)
+        bench(x,y+.09,w*.61)
+        for side in (-1,1):
+            planter(x+side*w*.40,y-.10,.51,d*.67)
     else:
+        roof(x,y,1.95,w+.36,d+.39,.65,color,edge)
         box('flower counter',x,y-.32,.55,w-.12,.65,.91,'AB865F')
         for i in range(14):
             box('counter planks',x+(i-6.5)*.183,y-.66,.54,.12,.055,.78,'C8996A')
@@ -212,7 +219,7 @@ def pavilion(x,y,waiting):
                 rod('flower stem',(xx,yy,1.31),(fx,fy,z),.012,'61885A',5)
                 oval('flower petals',fx,fy,z,.083,.082,.064,['CC7F75','F6C364','ECE0AC','C68BA0','D9AC6E'][i],1)
         box('market sign',x,y-d*.5-.24,1.72,w*.8,.115,.32,edge)
-        plaque('MARKET LANE',x,y-d*.5-.308,1.73,.21,'FFEAC7')
+        plaque('FLOWERS',x,y-d*.5-.308,1.73,.21,'FFEAC7')
 
 def fountain():
     for rad,z,h,col in [(1.18,.03,.06,'AC8D6E'),(1.08,.10,.10,'E5CCAA'),(.92,.21,.19,'7B9C95'),(.98,.33,.11,'E2D2AE'),(.85,.385,.018,'499DA8')]:
@@ -287,13 +294,13 @@ for x in (-2.40,2.40):
         box('cross street inlay',x,-4.8+j*.48,.034,.10,.455,.034,'C6A384',.008)
 collect_new('01 · Plaza paving and foundation')
 shop(-4.02,3.12,4.55,2.40,True)
-collect_new('02 · Your brand market hall')
+collect_new('02 · Market hall')
 shop(4.18,3.15,3.93,2.10,False)
-collect_new('03 · Discounter shop')
+collect_new('03 · Arcade')
 pavilion(-6.27,-2.51,False)
-collect_new('04 · Market lane florist')
+collect_new('04 · Florist')
 pavilion(6.47,-2.76,True)
-collect_new('05 · Undecided pavilion')
+collect_new('05 · Public garden pergola')
 fountain()
 collect_new('06 · Fountain')
 for x,y,s in [(-7.42,3.83,.93),(-1.19,4.46,.70),(1.24,4.38,.74),(7.55,3.97,1.10),

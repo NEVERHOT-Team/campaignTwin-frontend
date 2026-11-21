@@ -23,6 +23,38 @@
 }
 .isometric-market canvas {
   touch-action: manipulation;
+  z-index: 1;
+}
+.isometric-shop-label {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, -100%);
+  padding: 2px 7px;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  color: #fff9ec;
+  background: #36352fee;
+  border: 1px solid #ffffff78;
+  border-radius: 4px;
+  font: 600 clamp(9px, 1vw, 12px)/1.45 system-ui, sans-serif;
+}
+.isometric-shop-label i {
+  display: inline-block;
+  width: .53em;
+  height: .53em;
+  margin-right: .4em;
+  border-radius: 50%;
+  vertical-align: .06em;
+}
+.isometric-schematic > p {
+  margin: 0;
+  padding: 8px 12px;
+  background: #262626;
+  color: #e0e0e0;
+  font-size: 13px;
 }
 .isometric-market canvas:focus-visible {
   outline: 3px solid #f8e1a6;
@@ -30,6 +62,7 @@
 }
 .isometric-market .isometric-angle {
   position: absolute;
+  z-index: 3;
   bottom: 8px;
   left: 8px;
   padding: 5px 10px;

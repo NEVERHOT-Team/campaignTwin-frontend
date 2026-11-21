@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react'
-import { brandLabels, type Agent } from './model'
+import type { Agent, BrandGroup } from './model'
+import { wouldBuyLabel } from './shopper-observation'
 
 export const shopperName = (id: string) => id.replace(/^shopper-/i, 'Shopper ')
 
 type Props = {
   agents: Agent[]
+  groups: BrandGroup[]
   pool: Agent[]
   poolName: string
   selected: string | null
@@ -15,7 +17,7 @@ type Props = {
   onSwitchers: () => void
 }
 
-export function ShopperPicker({ agents, pool, poolName, selected, switchers, onChoose, onFind, onSwitchers, onClear }: Props) {
+export function ShopperPicker({ agents, groups, pool, poolName, selected, switchers, onChoose, onFind, onSwitchers, onClear }: Props) {
   const [searching, setSearching] = useState(false)
   const [term, setTerm] = useState('')
   const searchTrigger = useRef<HTMLButtonElement>(null)
@@ -41,7 +43,7 @@ export function ShopperPicker({ agents, pool, poolName, selected, switchers, onC
     {shopper ? <>
       <div className="ra-person">
         <strong>{shopperName(shopper.shopper_id)}</strong>
-        <span>{brandLabels[shopper.brand]}</span>
+        <span>Would choose · {wouldBuyLabel(shopper, groups) ?? 'Unavailable'}</span>
       </div>
       {index >= 0 && <div className="ra-paging" aria-label={poolName}>
         <button className="ra-text-btn" type="button" disabled={pool.length <= 1} aria-label="Previous shopper"
@@ -54,7 +56,7 @@ export function ShopperPicker({ agents, pool, poolName, selected, switchers, onC
     <div className="ra-picker-actions">
       {!shopper && <button className="ra-btn" type="button" disabled={!agents.length}
         onClick={() => switchers.length ? onSwitchers() : onFind(agents[0].shopper_id)}>
-        {switchers.length ? 'Inspect a switcher' : 'Inspect a shopper'}
+        {switchers.length ? 'Inspect a preference change' : 'Inspect a shopper'}
       </button>}
       <button type="button" ref={searchTrigger} className="ra-text-btn" aria-expanded={searching}
         onClick={() => { if (searching) closeSearch(); else setSearching(true) }}>{shopper ? 'Change shopper' : 'Find by ID'}</button>
@@ -68,7 +70,7 @@ export function ShopperPicker({ agents, pool, poolName, selected, switchers, onC
           <button type="button" onClick={() => chooseMatch(a.shopper_id)}>{shopperName(a.shopper_id)}</button>
         </li>)}</ul></>}
       {shopper && <div className="ra-picker-actions">
-        {switchers.length > 0 && poolName !== 'changed preference' && <button type="button" className="ra-text-btn" onClick={() => { closeSearch(); onSwitchers() }}>Inspect a switcher</button>}
+        {switchers.length > 0 && poolName !== 'changed would-be brand' && <button type="button" className="ra-text-btn" onClick={() => { closeSearch(); onSwitchers() }}>Inspect a preference change</button>}
         <button type="button" className="ra-text-btn" aria-label="Clear shopper selection" onClick={() => { closeSearch(); onClear() }}>Clear</button>
       </div>}
     </div>}

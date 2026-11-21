@@ -15,6 +15,10 @@
 .live-market-arena .live-market-change {margin-top:12px;padding-top:11px;border-top:1px solid var(--ra-line)}
 .live-market-arena .live-market-note {margin-top:8px;color:var(--ra-soft);font-size:12px}
 .live-market-arena .live-market-reach {margin-top:3px;color:#ededed;font-size:15px;font-weight:545}
+.live-market-arena .live-audience-segments {display:grid;gap:10px;margin:5px 0 0;padding:0;list-style:none}
+.live-audience-segments li {display:grid;gap:2px}
+.live-audience-segments strong {font-size:13px;font-weight:550}
+.live-audience-segments span {font-size:12px;line-height:1.45;color:var(--ra-soft);font-variant-numeric:tabular-nums}
 .live-rail-detail {margin-top:13px;border-top:1px solid var(--ra-line);padding-top:6px}
 .live-rail-detail summary {display:list-item;list-style:disclosure-closed inside;cursor:pointer;font-size:13px;font-weight:550;min-height:36px;padding:8px 0}
 .live-rail-detail[open] summary {list-style-type:disclosure-open}

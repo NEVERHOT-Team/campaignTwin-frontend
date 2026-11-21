@@ -51,7 +51,7 @@ function IllustratedMarket() {
     if (context) context.drawImage(marketBackdrop(), 0, 0)
   }, [])
   return <div className="ra-stage live-market-illustration">
-    <canvas ref={canvas} width={marketWidth} height={marketHeight} role="img" aria-label="Illustration of a four-stall market square"/>
+    <canvas ref={canvas} width={marketWidth} height={marketHeight} role="img" aria-label="Illustrated market square with gardens and a fountain"/>
   </div>
 }
 function offerText(offer: PlanResult['input']['offer'] | undefined) {
@@ -127,7 +127,7 @@ function liveWorkflow(report: Report, review: Review | undefined, plan: PlanResu
       stamp: input?.seeds.length ? input.seeds.length + ' paired seeds' : scene?.scenario,
       facts: stageFacts([
         ['Evaluation window',interval(report.measurement_window)],
-        ['Eligible households',households == null ? undefined : numbers.format(households)],
+        ['Households in reported audience segments',households == null ? undefined : numbers.format(households)],
         ['Paired seed IDs',input?.seeds.length ? input.seeds.join(', ') : undefined],
         ['Median incremental profit',scene && outcome(scene,'incremental_profit')],
         ['P10 to P90 profit',scene?.metrics.some(m => m.metric === 'incremental_profit' && m.status === 'available')
@@ -195,7 +195,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
   const eligibleHouseholds = eligibleSegments.reduce((sum,s) => sum+s.households,0)
   const comparedPlans = plans.filter(p => p.scenario_results.some(s => s.scenario === scene?.scenario))
   const comparedLabels = comparedPlans.map(p => planLabels[p.role])
-  const floorCaption = <figcaption className="live-market-caption">Market illustration · This run reports aggregate outcomes.</figcaption>
+  const floorCaption = <figcaption className="live-market-caption">Market illustration · This run reports aggregate outcomes. Brand destinations and shopper positions are unavailable.</figcaption>
 
   return <div className="rehearsal-arena live-market-arena">
     <header className="ra-heading"><h1>Market arena</h1>
@@ -231,12 +231,16 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
         </section>
         <section className="ra-rail-section"><h2>Audience</h2>
           {selectedSegmentIds == null ? <p>Audience unavailable.</p> : <>
-            <p>{selectedSegmentIds.length ? 'Targeted segments' : 'All eligible buyers'}</p>
-            {eligibleSegments.length > 0 && <>
-              <p className="live-market-reach">{numbers.format(eligibleHouseholds)} households</p>
-              <details className="live-rail-detail"><summary>{eligibleSegments.length} audience segments</summary>
-                <dl className="ra-facts">{eligibleSegments.map(s => <div key={s.segment_id}><dt>{humanize(s.name)}</dt><dd>{numbers.format(s.households)}</dd></div>)}</dl>
-              </details></>}
+            <p>{selectedSegmentIds.length ? 'Targeted segments' : 'All eligible segments'}</p>
+            {eligibleSegments.length > 0 ? <>
+              <p className="live-market-reach">{numbers.format(eligibleHouseholds)} households in reported segments</p>
+              <details className="live-rail-detail"><summary>{eligibleSegments.length} audience {eligibleSegments.length === 1 ? 'segment' : 'segments'}</summary>
+                <ul className="live-audience-segments">{eligibleSegments.map(s => <li key={s.segment_id}>
+                  <strong>{s.name === s.name.toLowerCase() ? humanize(s.name) : s.name}</strong>
+                  <span>{numbers.format(s.households)} households · {percentage.format(s.weekly_purchase_probability)} weekly purchase probability</span>
+                </li>)}</ul>
+                <p className="live-market-note">These probabilities describe the source audience. Weekly nonbuyers include shoppers waiting for another promotion. Counts for either group are unavailable in this run.</p>
+              </details></> : <p className="live-market-note">Segment counts unavailable.</p>}
           </>}
         </section>
       </aside>
