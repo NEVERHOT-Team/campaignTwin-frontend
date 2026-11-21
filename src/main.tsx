@@ -1,5 +1,6 @@
 import { StrictMode, Suspense, lazy, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { enableWorkspaceMotion, scrollToWorkspaceStart } from './workspace-motion'
 import './styles.css'
 
 const DemoApp = lazy(() => import('./DemoApp'))
@@ -10,6 +11,7 @@ type Mode = 'planner' | 'demo'
 const modeFromUrl = (): Mode => isStandalone || new URLSearchParams(location.search).get('mode') === 'demo' ? 'demo' : 'planner'
 
 function Studio() {
+  useEffect(enableWorkspaceMotion, [])
   const [mode, setMode] = useState(modeFromUrl)
   const [visitedPlanner, setVisitedPlanner] = useState(() => modeFromUrl() === 'planner')
   const [visitedDemo, setVisitedDemo] = useState(() => modeFromUrl() === 'demo')
@@ -36,7 +38,7 @@ function Studio() {
       url.searchParams.delete('mode'); url.searchParams.delete('view')
       setVisitedPlanner(true)
     }
-    history.pushState(null,'',url); setMode(next); window.scrollTo(0,0)
+    history.pushState(null,'',url); setMode(next); scrollToWorkspaceStart()
   }
   return <>
     {visitedPlanner && <div hidden={mode !== 'planner'}><Suspense fallback={<p className="studio-loading" role="status">Opening planner…</p>}>

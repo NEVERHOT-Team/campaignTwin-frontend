@@ -1,3 +1,4 @@
+import { scrollToWorkspaceStart } from './workspace-motion'
 import { campaignDefaults, campaignFields, exampleCampaign, fieldIssues, labelsForCorePaths, type Question } from './campaign'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { demoEconomics } from './fixtures'
@@ -68,7 +69,7 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
 
   function go(next: Screen) {
     setScreen(next)
-    window.scrollTo({ top: 0, behavior: 'instant' })
+    scrollToWorkspaceStart()
   }
 
   function showReport(value: Report, isReplay: boolean) {

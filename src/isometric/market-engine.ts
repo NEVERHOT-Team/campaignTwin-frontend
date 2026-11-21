@@ -1,5 +1,6 @@
 import { brandColors, type Agent, type BrandGroup, type MapZone } from '../model'
 import { mapZoneFor } from '../shopper-groups'
+import { selectionDuration, selectionInset, walkingPose, walkingTime } from '../market-motion'
 import projection from './assets/projection.json'
 import eastDepth from './assets/east-depth.png'
 import westDepth from './assets/west-depth.png'
@@ -25,6 +26,7 @@ type Walker = {
   length: number
   start: number
   duration: number
+  initialHeading: GroundPoint
 }
 type ScreenPoint = { x: number; y: number; depth: number }
 type ScreenShopper = ScreenPoint & { id: string }
@@ -103,12 +105,13 @@ function interpolate(w: Walker, now: number) {
   const a = w.points[segment],
     b = w.points[segment + 1]
   const f = w.lengths[segment] ? offset / w.lengths[segment] : 1
+  const moving = w.length > 0.18 && t > 0
   return {
     x: a.x + (b.x - a.x) * f,
     y: a.y + (b.y - a.y) * f,
-    dx: b.x - a.x,
-    dy: b.y - a.y,
-    step: t < 1 && w.length > 0.18 ? 1 + (Math.floor(walk * 4.8) % 2) : 0,
+    dx: moving ? b.x - a.x : w.initialHeading.x,
+    dy: moving ? b.y - a.y : w.initialHeading.y,
+    step: moving ? walkingPose(now-w.start,w.duration,w.seed) : 0,
   }
 }
 export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProps, initialView: Angle) {
@@ -127,6 +130,7 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
     requestedFigures = false
   let previousAngle: HTMLCanvasElement | null = null,
     transitionStart = 0
+  let selectionStart = -Infinity
   let source: Agent[] | undefined,
     lastDay: number | undefined,
     ghosts: ReturnType<typeof destinations> | undefined
@@ -178,9 +182,7 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
       const left = foot.x - size / 2,
         top = foot.y - size * 0.82
       const row = position.step
-      const facingRight = row
-        ? position.dx + (view === 'east' ? 0.67 : -0.67) * position.dy > 0
-        : Boolean((w.seed >>> 6) % 2)
+      const facingRight = position.dx + (view === 'east' ? 0.67 : -0.67) * position.dy > 0
       const variant = wardrobe[w.zone] * 3 + (w.seed % 3),
         column = facingRight ? 11 - variant : variant
       const visible = (screenY: number, screenX = foot.x) => {
@@ -225,10 +227,11 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
     }
     const indicated = hover ?? focus ?? props.selected
     const marked = slots.find((p) => p.id === indicated)
-    if (marked) marker(marked)
+    const inset = indicated === props.selected ? selectionInset(time,selectionStart,reduced.matches) : 0
+    if (marked) marker(marked,inset)
     else if (indicated) {
       const occluded = people.find((p) => p.w.id === indicated)
-      if (occluded) marker({ ...occluded.foot, id: indicated, y: occluded.foot.y - 11 })
+      if (occluded) marker({ ...occluded.foot, id: indicated, y: occluded.foot.y - 11 },inset)
     }
     if (previousAngle && transitionStart) {
       const t = clamp((time - transitionStart) / 230, 0, 1)
@@ -242,15 +245,15 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
         transitionStart = 0
       }
     }
-    if (!reduced.matches && time < expiry) request()
+    if (!reduced.matches && time < Math.max(expiry,selectionStart+selectionDuration)) request()
   }
-  function marker(p: ScreenShopper) {
+  function marker(p: ScreenShopper, inset: number) {
     c.save()
     c.strokeStyle = '#fff6d8'
     c.lineWidth = 2
     c.shadowColor = '#384243'
     c.shadowBlur = 2
-    c.strokeRect(p.x - 7.5, p.y - 12, 15, 23)
+    c.strokeRect(p.x - 7.5 - inset, p.y - 12 - inset, 15 + 2*inset, 23 + 2*inset)
     c.shadowBlur = 0
     const label = p.id.replace(/^shopper-/i, 'Shopper ')
     c.font = '600 13px system-ui'
@@ -285,33 +288,40 @@ export function makeMarketEngine(surface: HTMLCanvasElement, initial: MarketProp
   function update(next: MarketProps, angle: Angle) {
     const agents = next.agents ?? empty,
       day = next.day ?? 0
-    const changed = agents !== source || day !== lastDay || props.groups !== next.groups
+    const changedGroups = next.groups !== props.groups && (props.groups?.length !== next.groups?.length ||
+      next.groups?.some((group,i) => group.id !== props.groups?.[i].id || group.role !== props.groups?.[i].role))
+    const changed = agents !== source || day !== lastDay || changedGroups
+    const now = performance.now()
+    if (next.selected !== props.selected) selectionStart = next.selected ? now : -Infinity
     if (changed) {
-      const now = performance.now()
       const old = new Map(walkers.map((w) => [w.id, interpolate(w, now)]))
       const points = destinations(agents, day, next.groups)
+      expiry = 0
       walkers = agents.flatMap((a) => {
         const dest = points.get(a.shopper_id)
         if (!dest) return []
-        const initial = old.get(a.shopper_id) ?? dest
+        const previous = old.get(a.shopper_id)
+        const initial = previous ?? dest
         const path = streetRoute(initial, dest),
           lengths = path.slice(1).map((p, i) => distance(path[i], p))
         const length = lengths.reduce((s, n) => s + n, 0)
+        const seed = seedOf(a.shopper_id)
+        const {delay,duration} = walkingTime(length*35,seed,Boolean(next.playing),reduced.matches)
+        if (duration) expiry = Math.max(expiry,now+delay+duration)
         return [
           {
             id: a.shopper_id,
             zone: mapZoneFor(a, next.groups),
-            seed: seedOf(a.shopper_id),
+            seed,
             points: path,
             lengths,
             length,
-            start: now,
-            duration:
-              reduced.matches || length < 0.001 ? 0 : Math.min(next.playing ? 850 : 625, 210 + length * 56),
+            start: now + delay,
+            duration,
+            initialHeading: previous ? {x: previous.dx, y: previous.dy} : {x: (seed >>> 6) % 2 ? 1 : -1, y: 0},
           },
         ]
       })
-      expiry = walkers.some((w) => w.duration > 0) ? now + 860 : 0
     }
     if (changed || next.ghosts !== ghostSource) {
       ghostSource = next.ghosts

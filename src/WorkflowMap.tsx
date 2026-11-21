@@ -1,4 +1,5 @@
-import { useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { WorkflowWires, type Connection } from './workflow-wires'
 import './workflow-map.css'
 
 type StageId = 'brief' | 'review' | 'setup' | 'simulation' | 'evidence' | 'decision'
@@ -7,12 +8,12 @@ export type WorkflowStageEvidence = {
   summary: string
   stamp?: string
   facts?: EvidenceRow[]
+  outputs?: EvidenceRow[]
   events?: EvidenceRow[]
   notes?: string[]
   quote?: string
 }
 export type WorkflowEvidence = Partial<Record<StageId, WorkflowStageEvidence>>
-
 type WorkflowProps = {
   plan?: string
   scenario?: string
@@ -27,125 +28,122 @@ type WorkflowProps = {
   | { mode: 'live'; revision?: number; decision?: string }
 )
 
-function PlanBranches({ comparisons, plan, selectablePlans, onChoosePlan }: WorkflowProps) {
-  if (!comparisons.length) return <p className="wf-unavailable">Plan breakdown unavailable</p>
-  return <ul aria-label="Plans evaluated for this scenario" className="wf-lanes">
-    {comparisons.map((label, i) => {
-      const selected = label === plan
-      const interactive = onChoosePlan && selectablePlans?.includes(label)
-      return <li className="wf-lane" key={i}>
-        {interactive
-          ? <button type="button" className="wf-plan" aria-pressed={selected} data-selected={selected} onClick={() => onChoosePlan(label)}>
-              <strong>{label}</strong><small>{selected ? 'Selected plan' : 'View plan'}</small>
-            </button>
-          : <div className="wf-plan" data-selected={selected}><strong>{label}</strong>{selected && <small>Selected plan</small>}</div>}
-      </li>
-    })}
-  </ul>
+function Fields({ rows }: { rows: EvidenceRow[] }) {
+  return <dl className="wf-fields">{rows.map((row,i) => <div key={i}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl>
 }
 
-function Facts({ rows }: { rows: EvidenceRow[] }) {
-  return <dl className="wf-facts">{rows.map(({ label, value }, i) =>
-    <div key={i}><dt>{label}</dt><dd>{value}</dd></div>
-  )}</dl>
+type StageProps = {
+  node: string; title: string; data?: WorkflowStageEvidence; fallback: string; sourceLabel: string
+  preview?: number; children?: ReactNode; summary?: string; stamp?: string
 }
-
-function StageDetails({ evidence, stage }: { evidence: WorkflowStageEvidence; stage: StageId }) {
-  const { summary, facts = [], notes = [], events = [], quote } = evidence
-  const eventTitle = stage === 'simulation' ? 'Recorded events' : stage === 'setup' ? 'Compared plans' : stage === 'evidence' ? 'Evaluation checks' : 'Supporting records'
-  return <>
-    <p className="wf-summary">{summary}</p>
-    {quote && <blockquote className="wf-quote">{quote}</blockquote>}
-    {facts.length > 0 && <Facts rows={facts.slice(0, 4)}/>}
-    {facts.length > 4 && <details className="wf-more-facts">
-      <summary>{facts.length - 4} more {facts.length === 5 ? 'field' : 'fields'}</summary><Facts rows={facts.slice(4)}/>
+function StageNode({ node, title, data, fallback, sourceLabel, preview = 2, children, summary, stamp }: StageProps) {
+  const facts = data?.facts ?? []
+  const extra = facts.slice(preview)
+  const text = summary ?? data?.summary ?? fallback
+  const caption = stamp ?? data?.stamp
+  return <article className="wf-node wf-stage" data-flow-node={node} aria-label={title}>
+    <header><h4>{title}</h4>{caption && <small>{caption}</small>}</header>
+    {text && <p className="wf-stage-summary">{text}</p>}
+    {preview > 0 && facts.length > 0 && <Fields rows={facts.slice(0,preview)}/>}
+    {(extra.length > 0 || data?.quote || !!data?.notes?.length) && <details className="wf-source">
+      <summary>{sourceLabel}</summary>
+      {extra.length > 0 && <Fields rows={extra}/>}
+      {data?.quote && <blockquote>{data.quote}</blockquote>}
+      {data?.notes?.map((note,i) => <p key={i}>{note}</p>)}
     </details>}
-    {events.length > 0 && <div className="wf-records">
-      <h5>{eventTitle}</h5>
-      {stage === 'simulation' ? <ol className="wf-history" aria-label={eventTitle}>
-        {events.map(({ label, value }, i) => <li key={i}><strong>{label}</strong><span>{value}</span></li>)}
-      </ol> : <Facts rows={events}/>}
-    </div>}
-    {notes.length > 0 && <ul className="wf-notes" aria-label="Source notes">{notes.map((note, i) => <li key={i}>{note}</li>)}</ul>}
-  </>
+    {children}
+  </article>
+}
+
+function RecordNode({ id, row, variant }: { id: string; row: EvidenceRow; variant?: 'event' | 'metric' | 'check' }) {
+  return <article className={'wf-node wf-record wf-' + (variant ?? 'metric')} data-flow-node={id} aria-label={row.label}>
+    <h5>{row.label}</h5><p>{row.value}</p>
+  </article>
 }
 
 export function WorkflowMap(props: WorkflowProps) {
-  const id = useId()
-  const [inspected, setInspected] = useState<StageId>('simulation')
-  const stagesRef = useRef<(HTMLButtonElement | null)[]>([])
+  const board = useRef<HTMLDivElement>(null)
+  const verdict = useRef<HTMLButtonElement>(null)
+  const jumping = useRef(false)
   const live = props.mode === 'live'
   const checkpoint = props.mode === 'demo' ? props.nextCheckpoint : undefined
-  const current = live ? 'Evaluation complete' : props.day != null ? `Day ${props.day} of the replay` : 'Market replay'
+  const current = live ? 'Evaluation complete' : props.day == null ? 'Market replay' : `Day ${props.day} of the replay`
   const seeds = props.seedCount == null ? undefined
     : `${props.seedCount.toLocaleString()} ${live ? 'paired' : 'simulation'} ${props.seedCount === 1 ? 'seed' : 'seeds'}`
-  const context = [props.scenario, props.mode === 'demo' ? props.phase : undefined, seeds].filter(Boolean).join(' · ')
-  const stages: { id: StageId; label: string; fallback: string }[] = [
-    { id:'brief', label:'Campaign brief', fallback:'The original brief is unavailable in this report.' },
-    { id:'review', label:'Human review', fallback:props.mode === 'live' && props.revision != null ? `Revision ${props.revision} approved.` : 'Approval details are unavailable in this report.' },
-    { id:'setup', label:'Run setup', fallback:props.plan && props.scenario ? `${props.plan} is selected for ${props.scenario}.` : 'Detailed plan inputs are unavailable.' },
-    { id:'simulation', label:live ? 'Paired simulation' : 'Market replay', fallback:live ? 'The evaluated run is available for inspection.' : 'The timeline shows the recorded simulation days.' },
-    { id:'evidence', label:'Measurement', fallback:'Detailed measurement evidence is unavailable in this workflow.' },
-    { id:'decision', label:'Verdict', fallback:props.mode === 'live' && props.decision ? `Original plan · ${props.decision}` : 'Open the verdict to review the available decision evidence.' },
-  ]
+  const evidence = props.evidence ?? {}
+  const events = evidence.simulation?.events ?? []
+  const outputs = evidence.simulation?.outputs ?? []
+  const checks = evidence.evidence?.events ?? []
+  const plans = props.comparisons
+  const planIds = plans.length ? plans.map((_,i) => 'plan-' + i) : ['no-plans']
+  const edges: Connection[] = [{from:'brief',to:'review'}, {from:'review',to:'setup'}]
+  planIds.forEach((id,i) => {
+    const emphasis = plans[i] != null && plans[i] === props.plan
+    edges.push({from:'setup',to:id,kind:'branch',emphasis}, {from:id,to:'run',kind:'merge',emphasis})
+  })
+  let observed = 'run'
+  events.forEach((_,i) => { const next = 'event-' + i; edges.push({from:observed,to:next}); observed = next })
+  if (checkpoint) edges.push({from:observed,to:'next',kind:'next'})
+  outputs.forEach((_,i) => edges.push({from:observed,to:'outcome-' + i,kind:'branch'}))
+  edges.push({from:'run',to:'measurement',kind:'branch'}, {from:'measurement',to:'verdict',kind:'merge'})
+  checks.forEach((_,i) => edges.push({from:'measurement',to:'check-' + i,kind:'side'}, {from:'check-' + i,to:'verdict',kind:'merge'}))
 
-  function navigate(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    let next: number
-    switch (event.key) {
-      case 'ArrowDown': case 'ArrowRight': next = (index + 1) % stages.length; break
-      case 'ArrowUp': case 'ArrowLeft': next = (index - 1 + stages.length) % stages.length; break
-      case 'Home': next = 0; break
-      case 'End': next = stages.length - 1; break
-      default: return
-    }
-    event.preventDefault()
-    setInspected(stages[next].id)
-    stagesRef.current[next]?.focus()
-  }
+  useEffect(() => {
+    if (jumping.current && !checkpoint) verdict.current?.focus()
+    jumping.current = false
+  }, [checkpoint?.day])
 
   return <section className="wf-map" aria-label="Campaign workflow">
-    <header className="wf-overview">
-      <div><span className="wf-kicker">{live ? 'Run status' : 'Replay position'}</span><h3>{current}</h3></div>
-      {context && <p>{context}</p>}
-    </header>
+    <h3 className="sr-only">Campaign workflow diagram</h3>
+    <div className="wf-diagram" ref={board}>
+      <WorkflowWires board={board} edges={edges}/>
+      <section className="wf-rank" data-rank="input" aria-label="Campaign preparation">
+        <StageNode node="brief" title="Campaign brief" data={evidence.brief} fallback="Original brief unavailable." sourceLabel="Brief details"/>
+        <StageNode node="review" title="Human review" data={evidence.review}
+          fallback={live && props.revision != null ? 'Revision ' + props.revision + ' approved.' : 'Approval details unavailable.'} sourceLabel="Review record"/>
+        <StageNode node="setup" title="Run setup" data={evidence.setup} fallback="Detailed inputs unavailable." sourceLabel="Frozen inputs"/>
+      </section>
 
-    <div className="wf-explorer">
-      <div className="wf-stage-nav" role="tablist" aria-label="Workflow stages" aria-orientation="vertical">
-        {stages.map((stage, index) => <button key={stage.id} type="button" role="tab" id={id+'-stage-'+stage.id}
-          ref={node => { stagesRef.current[index] = node }} aria-controls={id+'-details-'+stage.id}
-          aria-selected={inspected === stage.id} tabIndex={inspected === stage.id ? 0 : -1}
-          onClick={() => setInspected(stage.id)} onKeyDown={e => navigate(e, index)}>
-          <span className="wf-marker" aria-hidden="true">{index + 1}</span>
-          <span className="wf-stage-label"><strong>{stage.label}</strong>{props.evidence?.[stage.id]?.stamp && <small>{props.evidence[stage.id]?.stamp}</small>}</span>
-        </button>)}
-      </div>
+      <section className="wf-rank wf-plans" data-rank="plans" aria-label="Plans evaluated for this scenario">
+        {plans.map((label,i) => {
+          const selected = label === props.plan
+          const value = evidence.setup?.events?.find(row => row.label === label)?.value
+          const selectable = props.onChoosePlan && props.selectablePlans?.includes(label)
+          const body = <><small>{selected ? 'Selected plan' : selectable ? 'Select plan' : 'Comparison'}</small>
+            <strong>{label}</strong>{value && <span>{value}</span>}</>
+          return selectable
+            ? <button type="button" className="wf-node wf-plan" key={i} data-flow-node={planIds[i]} aria-pressed={selected}
+                onClick={() => props.onChoosePlan?.(label)}>{body}</button>
+            : <article className="wf-node wf-plan" key={i} data-flow-node={planIds[i]} aria-label={label}>{body}</article>
+        })}
+        {!plans.length && <article className="wf-node wf-plan" data-flow-node="no-plans">Plan breakdown unavailable</article>}
+      </section>
 
-      <div className="wf-inspector">
-        {stages.map((stage, index) => <section key={stage.id} className="wf-stage-detail" role="tabpanel"
-          id={id+'-details-'+stage.id} aria-labelledby={id+'-stage-'+stage.id} hidden={inspected !== stage.id}
-          tabIndex={inspected === stage.id ? 0 : -1}>
-          {inspected === stage.id && <>
-            <span className="wf-kicker">Stage {index + 1} of {stages.length}</span>
-            <h4>{stage.label}</h4>
-            <StageDetails stage={stage.id} evidence={props.evidence?.[stage.id] ?? {summary:stage.fallback}}/>
-          </>}
-        </section>)}
-      </div>
-    </div>
+      <section className="wf-rank" data-rank="run" aria-label="Simulation and recorded observations">
+        <StageNode node="run" title={live ? 'Paired simulation' : 'Market replay'} data={evidence.simulation}
+          fallback="Detailed simulation observations unavailable." stamp={current} sourceLabel="Run details">
+          <p className="wf-scope">{[props.scenario,props.mode === 'demo' ? props.phase : undefined,seeds].filter(Boolean).join(' · ')}</p>
+        </StageNode>
+        {events.map((row,i) => <RecordNode key={i} id={'event-' + i} row={row} variant="event"/>)}
+        {checkpoint && <article className="wf-node wf-checkpoint" data-flow-node="next">
+          <small>Next checkpoint</small><h5>{checkpoint.label}</h5>
+          <button type="button" className="wf-action" onClick={() => {jumping.current=true; checkpoint.onGo()}}>Jump to day {checkpoint.day}</button>
+        </article>}
+      </section>
 
-    <section className="wf-comparison" aria-label="Comparison plans">
-      <h4>Plans in this scenario</h4>
-      <PlanBranches {...props}/>
-    </section>
+      <section className="wf-rank" data-rank="results" aria-label="Run outcomes and decision evidence">
+        {outputs.map((row,i) => <RecordNode key={i} id={'outcome-' + i} row={row} variant="metric"/>)}
+        <StageNode node="measurement" title="Measurement" data={evidence.evidence} fallback="Measurement evidence unavailable."
+          sourceLabel="Measurement details"/>
+        {checks.map((row,i) => <RecordNode key={i} id={'check-' + i} row={row} variant="check"/>)}
+      </section>
 
-    <div className="wf-next">
-      <div className="wf-next-copy"><small>{checkpoint ? 'Next checkpoint' : 'Next step'}</small>
-        <strong>{checkpoint ? checkpoint.label : 'Review the verdict'}</strong>
-        {props.mode === 'live' && props.decision && <span>Original plan · {props.decision}</span>}
-      </div>
-      <button type="button" className="wf-action" onClick={checkpoint?.onGo ?? props.onVerdict}>
-        {checkpoint ? `Jump to day ${checkpoint.day}` : 'Open verdict'}
-      </button>
+      <section className="wf-rank" data-rank="decision" aria-label="Campaign decision">
+        <StageNode node="verdict" title="Verdict" data={evidence.decision} fallback={live && props.decision ? 'Original plan · ' + props.decision : 'Decision details unavailable.'}
+          sourceLabel="Decision evidence">
+          <button type="button" ref={verdict} className="wf-action wf-open" onClick={props.onVerdict}>Open verdict</button>
+        </StageNode>
+      </section>
     </div>
   </section>
 }

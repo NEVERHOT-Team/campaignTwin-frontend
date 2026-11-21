@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, type KeyboardEvent, type PointerEvent } fro
 import type { Agent, BrandGroup } from './model'
 import { resolveBrandGroups } from './shopper-groups'
 import { uniqueShoppers } from './shopper-snapshot'
+import { selectionDuration, selectionInset, walkingPose, walkingTime } from './market-motion'
 import { marketBackdrop, marketLayout, marketWidth, shopperAtlas, type Bounds, type MarketLayout, type Point } from './pixel-market-art'
 
 type Props = {
@@ -123,14 +124,15 @@ function sample(w:Walker,time:number):Position {
   while(index<w.lengths.length-1 && left>w.lengths[index])left-=w.lengths[index++]
   const a=w.points[index],b=w.points[index+1],f=w.lengths[index]?cap(left/w.lengths[index],0,1):1
   return {id:w.agent.shopper_id,agent:w.agent,site:w.site,seed:w.seed,x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f,
-    step:t<1 && w.distance>7 ? 1+(Math.floor(travel/5)%2):0}
+    step:w.distance>7 ? walkingPose(time-w.began,w.duration,w.seed):0}
 }
 
-function cursor(c:CanvasRenderingContext2D,p:Point,active:boolean) {
-  const x=Math.round(p.x)-8,y=Math.round(p.y)-17
+function cursor(c:CanvasRenderingContext2D,p:Point,active:boolean,inset=0) {
+  const extra=Math.round(inset),x=Math.round(p.x)-8-extra,y=Math.round(p.y)-17-extra
   for(const [pad,color] of [[1,'#233436'],[0,active?'#fff8ce':'#fff6e3']] as const){
     c.fillStyle=color
-    for(const [cx,cy,m,n] of [[x-pad,y-pad,1,1],[x+16+pad,y-pad,-1,1],[x-pad,y+19+pad,1,-1],[x+16+pad,y+19+pad,-1,-1]]){
+    const right=x+16+2*extra,bottom=y+19+2*extra
+    for(const [cx,cy,m,n] of [[x-pad,y-pad,1,1],[right+pad,y-pad,-1,1],[x-pad,bottom+pad,1,-1],[right+pad,bottom+pad,-1,-1]]){
       c.fillRect(cx,cy,4*m,2*n);c.fillRect(cx,cy,2*m,4*n)
     }
   }
@@ -145,7 +147,7 @@ function engine(canvas:HTMLCanvasElement,initial:Props,groups:BrandGroup[],layou
   const catalog=new Map(groups.map(g=>[g.id,g]))
   let hovered:string|null=null, focused:string|null=null
   let current=initial,frame=0,lastAgents:Agent[]|undefined,lastDay:number|undefined
-  let animationStart=0
+  let walksEnd=0,selectionStart=-Infinity
   function paint(time:number){
     frame=0
     if(document.hidden)return
@@ -164,10 +166,10 @@ function engine(canvas:HTMLCanvasElement,initial:Props,groups:BrandGroup[],layou
     }
     for(const p of positions)person(c,p.agent.brand,p.seed>>>8,p.step,p)
     const marked=byId.get(current.selected??'')
-    if(marked)cursor(c,marked,true)
+    if(marked)cursor(c,marked,true,selectionInset(time,selectionStart,reduce.matches))
     const preview=byId.get(hovered??focused??'')
     if(preview){
-      cursor(c,preview,false)
+      if(preview.id!==marked?.id)cursor(c,preview,false)
       const group=catalog.get(preview.agent.brand)
       const outcome=preview.agent.purchase==='bought' ? (group?'Bought · '+group.label:'Bought · group unavailable') :
         preview.agent.purchase==='no_purchase' ? (preview.agent.waiting?'No purchase · waiting':'No purchase') : 'Purchase not supplied'
@@ -178,23 +180,25 @@ function engine(canvas:HTMLCanvasElement,initial:Props,groups:BrandGroup[],layou
       c.fillStyle='#273839';c.fillRect(x-Math.floor(width/2),y-2,width,13)
       c.fillStyle='#fff8e6';c.fillText(label,x,y+5,width-10)
     }
-    if(!reduce.matches && time<animationStart+860)frame=requestAnimationFrame(paint)
+    if(!reduce.matches && time<Math.max(walksEnd,selectionStart+selectionDuration))frame=requestAnimationFrame(paint)
   }
   function repaint(){if(!frame && !document.hidden)frame=requestAnimationFrame(paint)}
   function update(p:Props){
     const time=performance.now()
+    if(p.selected!==current.selected)selectionStart=p.selected?time:-Infinity
     const changed=p.agents!==lastAgents || p.day!==lastDay
     if(changed){
       const old=new Map(walkers.map(w=>[w.agent.shopper_id,sample(w,time)]))
       const cells=destinations(p.agents,p.day,layout)
+      walksEnd=0
       walkers=[...cells.values()].map(({agent,site,at:target})=>{
         const seed=hash(agent.shopper_id),start=old.get(agent.shopper_id)??target
         const points=route(start,target),lengths=points.slice(1).map((pt,i)=>distance(points[i],pt))
         const total=lengths.reduce((sum,n)=>sum+n,0)
-        return {agent,site,seed,points,lengths,distance:total,began:time,
-          duration:reduce.matches || total<.01?0:Math.min(p.playing?850:520,220+total*1.9)}
+        const {delay,duration}=walkingTime(total,seed,p.playing,reduce.matches)
+        if(duration)walksEnd=Math.max(walksEnd,time+delay+duration)
+        return {agent,site,seed,points,lengths,distance:total,began:time+delay,duration}
       })
-      animationStart=walkers.some(w=>w.duration>0)?time:-1000
     }
     if(p.ghosts!==current.ghosts || p.day!==lastDay || changed){
       ghostPoints=destinations(p.ghosts??noAgents,p.day,layout)

@@ -109,12 +109,14 @@ export function replayWorkflowEvidence({ report, result, groups, baselineDay, fr
       summary: `${phase} on day ${day}. ${frame?.agents ? count.format(frame.agents.length) + ' simulated shoppers in the daily snapshot.' : 'Individual shopper observations are unavailable.'}`,
       facts: facts([
         ['Would choose your brand', share(frame?.brand_share_pct)], ['No-campaign would-be share', share(baselineShare)],
-        ['Recorded purchases', hasPurchases && frame?.agents ? purchases.bought + ' of ' + frame.agents.length + ' shoppers' : 'Unavailable'],
-        ['Recorded no purchase', hasPurchases && frame?.agents ? purchases.noPurchase + ' of ' + frame.agents.length + ' shoppers' : 'Unavailable'],
         ['Waiting for a promotion', hasWaiting ? purchases.waiting + ' confirmed among ' + purchases.noPurchase + ' non-buyers' + (purchases.waitingUnknown ? ' · ' + purchases.waitingUnknown + ' waiting states unavailable' : '') : undefined],
         ['Purchase outcome unavailable', purchases?.unknown ? purchases.unknown + ' shoppers' : undefined],
         ['Selected shopper', shopper && shopper.shopper_id + ' · ' + purchaseLabel(shopper, groups)],
         ['Selected shopper would choose', shopper && wouldBuyLabel(shopper, groups)],
+      ]),
+      outputs: facts([
+        ['Recorded purchases', hasPurchases && frame?.agents ? purchases.bought + ' of ' + frame.agents.length + ' shoppers' : 'Unavailable'],
+        ['Recorded no purchase', hasPurchases && frame?.agents ? purchases.noPurchase + ' of ' + frame.agents.length + ' shoppers' : 'Unavailable'],
       ]),
       events: observations.sort((a, b) => a.day - b.day).map(event => ({ label: 'Day ' + event.day + ' · ' + event.label, value: event.value })),
       notes: !lastMove && result ? ['No rival move recorded through day ' + day + '.'] : undefined,

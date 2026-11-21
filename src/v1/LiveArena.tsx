@@ -3,6 +3,7 @@ import { marketBackdrop, marketHeight, marketWidth } from '../pixel-market-art'
 import { ArenaViews, IsometricMarket } from '../ArenaViews'
 import { WorkflowMap, type WorkflowEvidence } from '../WorkflowMap'
 import { ScenarioChoices } from '../ScenarioChoices'
+import { ProfitValue } from '../ProfitValue'
 import { humanize } from './planner'
 import type { Report, Review } from './client'
 import { resolveRunSelection, type RunSelection } from './run-selection'
@@ -35,14 +36,17 @@ function interval(window: Report['measurement_window']) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 'Unavailable'
   return calendar.formatRange(start, end - 86400000)
 }
-function ResultMetric({ title, metric, tone }: { title: string; metric?: Metric; tone?: 'positive'|'negative' }) {
+function ResultMetric({ title, metric, profit = false, note }: { title: string; metric?: Metric; profit?: boolean; note?: string }) {
   let detail = metric?.unavailable_reason ? humanize(metric.unavailable_reason) : 'No estimate returned'
   if (metric && metric.status === 'available' && metric.value !== null) {
     detail = typeof metric.value === 'number'
       ? 'Across paired seeds'
       : 'P10–P90 · ' + metricValue(metric, 'p10') + ' to ' + metricValue(metric, 'p90')
   }
-  return <div><dt>{title}</dt><dd data-outcome={tone}>{metricValue(metric)}</dd><dd className="ra-metric-note">{detail}</dd></div>
+  const reported = metric?.status === 'available' ? metric.value : null
+  const amount = typeof reported === 'number' ? reported : reported?.p50
+  return <div><dt>{title}</dt><dd>{profit ? <ProfitValue amount={amount} formatted={metricValue(metric)}/> : metricValue(metric)}</dd>
+    <dd className="ra-metric-note">{note ?? detail}</dd></div>
 }
 function IllustratedMarket() {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -129,6 +133,8 @@ function liveWorkflow(report: Report, review: Review | undefined, plan: PlanResu
         ['Evaluation window',interval(report.measurement_window)],
         ['Households in reported audience segments',households == null ? undefined : numbers.format(households)],
         ['Paired seed IDs',input?.seeds.length ? input.seeds.join(', ') : undefined],
+      ]),
+      outputs: stageFacts([
         ['Median incremental profit',scene && outcome(scene,'incremental_profit')],
         ['P10 to P90 profit',scene?.metrics.some(m => m.metric === 'incremental_profit' && m.status === 'available')
           ? outcome(scene,'incremental_profit','p10') + ' to ' + outcome(scene,'incremental_profit','p90') : undefined],
@@ -141,12 +147,16 @@ function liveWorkflow(report: Report, review: Review | undefined, plan: PlanResu
       summary: originalScope ? 'Outcomes for your original plan under ' + originalScope.scenario + ', alongside its approved limits.' : 'Original-plan outcomes are unavailable for this selected scenario.',
       stamp: originalScope?.scenario,
       facts: stageFacts([
-        ['Minimum target',target ? humanize(target.metric) + ' ≥ ' + valueInUnit(target.minimum,target.unit) : undefined],
         ['Original median profit',originalScope && outcome(originalScope,'incremental_profit')],
-        ['Maximum loss probability',originalPolicy && percentage.format(originalPolicy.max_loss_probability) || undefined],
-        ['Original loss probability',originalScope && outcome(originalScope,'probability_loss')],
+        ['Original loss probability',!originalPolicy && originalScope ? outcome(originalScope,'probability_loss') : undefined],
         ['Original median subsidy leakage',originalScope && outcome(originalScope,'subsidy_leakage')],
         ['Incremental buyers',originalScope && outcome(originalScope,'incremental_new_buyers')],
+      ]),
+      events: stageFacts([
+        ['Original plan target',target ? humanize(target.metric) + ' ≥ ' + valueInUnit(target.minimum,target.unit)
+          + (originalScope ? ' · chance of meeting target ' + outcome(originalScope,'probability_hit_target') : '') : undefined],
+        ['Original loss limit',originalPolicy ? percentage.format(originalPolicy.max_loss_probability) + ' maximum'
+          + (originalScope ? ' · reported risk ' + outcome(originalScope,'probability_loss') : '') : undefined],
       ]),
       notes: ['Open Verdict for the recorded decision checks and historical comparison.'],
     },
@@ -188,8 +198,6 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
     id: scenario,
     label: policy === 'synthetic-tissue-v1' && scenario === 'S1' ? 'S1 · No rival action' : scenario,
   }))
-  const profit = metric('incremental_profit')?.value
-  const medianProfit = typeof profit === 'object' && profit !== null ? profit.p50 : null
   const loss = metric('probability_loss')?.value
   const aboveLimit = evaluation && typeof loss === 'number' && loss > evaluation.max_loss_probability
   const eligibleHouseholds = eligibleSegments.reduce((sum,s) => sum+s.households,0)
@@ -206,10 +214,10 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
 
     {scene && <ScenarioChoices options={labels} value={scene.scenario} onChange={selection.setScenarioId} label={results.length === 1 ? 'Evaluated scenario' : 'Rival scenario'}/>}
     <dl className="ra-metrics" aria-label="Evaluated scenario highlights">
-      <ResultMetric title="Median incremental profit" metric={metric('incremental_profit')} tone={!aboveLimit && medianProfit != null && medianProfit > 0 ? 'positive' : undefined}/>
+      <ResultMetric title="Median incremental profit" metric={metric('incremental_profit')} profit/>
       <ResultMetric title="Median incremental ROAS" metric={metric('incremental_roas')}/>
       <ResultMetric title="Median subsidy leakage" metric={metric('subsidy_leakage')}/>
-      <ResultMetric title="Probability of loss" metric={metric('probability_loss')} tone={aboveLimit ? 'negative' : undefined}/>
+      <ResultMetric title="Probability of loss" metric={metric('probability_loss')} note={aboveLimit ? 'Above the ' + percentage.format(evaluation.max_loss_probability) + ' loss limit' : undefined}/>
     </dl>
 
     <div className="ra-layout">

@@ -3,7 +3,9 @@ import { ArenaViews, IsometricMarket } from './ArenaViews'
 import { WorkflowMap } from './WorkflowMap'
 import { replayWorkflowEvidence } from './replay-workflow'
 import { ScenarioChoices } from './ScenarioChoices'
+import { ProfitValue } from './ProfitValue'
 import { PixelArena } from './PixelArena'
+import { DayScrubber } from './DayScrubber'
 import { ShopperPicker, shopperName } from './ShopperPicker'
 import { money, type Agent, type Day, type Report, type Result, type Trace } from './model'
 import { preferredBrand, resolveBrandGroups, summarizePurchases } from './shopper-groups'
@@ -17,7 +19,7 @@ function normalizedDays(result?: Result) {
   return result?.daily.map(frame => frame.agents ? { ...frame, agents:uniqueShoppers(frame.agents) } : frame)
 }
 type ShopperLens = { kind: 'purchased'; groupId: string } | { kind: 'no_purchase' | 'waiting' | 'unknown' | 'unknown_brand' | 'changed' }
-type ShopperRow = { key: string; label: string; members: Agent[]; lens: ShopperLens }
+type ShopperRow = { key: string; label: string; color?: string; members: Agent[]; lens: ShopperLens }
 const formatNumber = new Intl.NumberFormat('en', { maximumFractionDigits: 1 })
 class TrendBoundary extends Component<{ days: Day[]; children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -34,13 +36,13 @@ class TrendBoundary extends Component<{ days: Day[]; children: ReactNode }, { fa
   }
 }
 
-function RangeNote({ low, high, currency = false, highlightDownside = false }: { low: number; high: number; currency?: boolean; highlightDownside?: boolean }) {
+function RangeNote({ low, high, currency = false }: { low: number; high: number; currency?: boolean }) {
   const fmt = currency ? money : (n: number) => formatNumber.format(n)
-  return <>P10–P90 · <span data-outcome={highlightDownside ? 'negative' : undefined}>{fmt(low)}</span> to {fmt(high)}</>
+  return <>P10–P90 · {fmt(low)} to {fmt(high)}</>
 }
 
-function Metric({ title, value, note, tone }: { title: string; value: string; note: ReactNode; tone?: string }) {
-  return <div><dt>{title}</dt><dd data-outcome={tone}>{value}</dd><dd className="ra-metric-note">{note}</dd></div>
+function Metric({ title, value, note }: { title: string; value: ReactNode; note: ReactNode }) {
+  return <div><dt>{title}</dt><dd>{value}</dd><dd className="ra-metric-note">{note}</dd></div>
 }
 
 function RailSection({ title, children }: { title: string; children: ReactNode }) {
@@ -86,10 +88,6 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
   const moves = (result?.competitor_actions ?? []).filter(m => m.day <= day).sort((a,b) => b.day - a.day)
   const lastMove = moves[0]
   const profit = result?.metrics.incremental_profit_thb
-  const highlightDownside = !!profit && profit.p10 < 0 && profit.p50 >= 0
-  const medianTone = profit && !highlightDownside && profit.p50 !== 0
-    ? (profit.p50 < 0 ? 'negative' : 'positive')
-    : undefined
   const buyers = result?.metrics.new_buyers
   const share = current?.brand_share_pct
   const baseShare = current?.baseline_share_pct ?? baselineDay?.brand_share_pct
@@ -101,7 +99,7 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
   })
   const purchases = summarizePurchases(agents)
   const purchaseRows: ShopperRow[] = groups.map(group => ({
-    key: 'brand/' + group.id, label: group.label, lens: { kind: 'purchased', groupId: group.id },
+    key: 'brand/' + group.id, label: group.label, color: group.color, lens: { kind: 'purchased', groupId: group.id },
     members: agents.filter(a => a.purchase === 'bought' && preferredBrand(a, groups) === group.id),
   }))
   const unbranded = agents.filter(a => a.purchase === 'bought' && preferredBrand(a, groups) == null)
@@ -136,11 +134,9 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
 
   useEffect(() => {
     if (!playing) return
-    const timer = window.setTimeout(() => {
-      const next = days?.find(item => item.day > day)
-      if (next) changeDay(next.day)
-      else setPlaying(false)
-    }, 1050)
+    const next = days?.find(item => item.day > day)
+    if (!next) { setPlaying(false); return }
+    const timer = window.setTimeout(() => changeDay(next.day),1050)
     return () => clearTimeout(timer)
   }, [playing, day, days, changeDay])
 
@@ -166,9 +162,9 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
     const rate = agents.length ? amount / agents.length * 100 : 0
     return <button key={row.key} type="button" disabled={!amount} className={'ra-cohort' + (subset ? ' ra-cohort-subset' : '')}
       aria-describedby="ra-group-help" onClick={() => { inspect(row.members[0].shopper_id,row.lens); focusInspector() }}>
-      <span>{row.label}</span><b>{coverageKnown || row.lens.kind === 'unknown' ? formatNumber.format(amount) :
+      <span className="ra-cohort-name">{row.color && <i aria-hidden="true" style={{backgroundColor:row.color}}/>}{row.label}</span><b>{coverageKnown || row.lens.kind === 'unknown' ? formatNumber.format(amount) :
         <><span aria-hidden="true">—</span><span className="sr-only">Unavailable</span></>}</b>
-      {!subset && coverageKnown && <i aria-hidden="true"><i style={{width:rate+'%'}}/></i>}
+      {!subset && coverageKnown && <i aria-hidden="true"><i style={{width:rate+'%',backgroundColor:row.color}}/></i>}
     </button>
   }
 
@@ -177,11 +173,11 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
       <h1>Market arena</h1>
       <button className="ra-btn ra-primary" onClick={onVerdict}>View verdict</button>
     </header>
-    <ScenarioChoices options={report.scenarios.map(s => ({ id:s.scenario_id, label:s.label }))}
-      value={scenario} onChange={id => { setPlaying(false); changeScenario(id) }} description={scenarioInfo?.description}/>
+    <ScenarioChoices options={report.scenarios.map(s => ({ id:s.scenario_id, label:s.label, description:s.description }))}
+      value={scenario} onChange={id => { setPlaying(false); changeScenario(id) }}/>
     <dl className="ra-metrics" aria-label="Simulation highlights">
-      <Metric title="Profit lift · full-run median" value={profit ? money(profit.p50) : 'Unavailable'} tone={medianTone}
-        note={profit ? <RangeNote low={profit.p10} high={profit.p90} currency highlightDownside={highlightDownside}/> : 'No estimate returned'}/>
+      <Metric title="Profit lift · full-run median" value={<ProfitValue amount={profit?.p50} formatted={profit ? money(profit.p50) : 'Unavailable'}/>}
+        note={profit ? <RangeNote low={profit.p10} high={profit.p90} currency/> : 'No estimate returned'}/>
       <Metric title="Buyer lift · full-run median" value={buyers ? formatNumber.format(buyers.p50) : 'Unavailable'}
         note={buyers ? <RangeNote low={buyers.p10} high={buyers.p90}/> : 'No estimate returned'}/>
       <Metric title={`Would choose your brand · day ${day}`} value={share == null ? 'Unavailable' : formatNumber.format(share)+'%'}
@@ -251,11 +247,8 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
         </div>}
         <div className="ra-playback">
           <button className="ra-btn ra-inverse" aria-label={playing ? 'Pause timeline' : day >= to ? 'Replay timeline' : 'Play timeline'} disabled={!days || days.length < 2}
-            onClick={() => { if (day >= to) changeDay(from); setPlaying(!playing) }}>{playing ? 'Pause' : day >= to ? 'Replay' : 'Play'}</button>
-          <div className="ra-scrub"><div><label htmlFor="ra-day">Timeline</label><span>Day {day} of {to}</span></div>
-            <input id="ra-day" type="range" aria-label="Simulation day" min={from} max={to} value={day} disabled={!days || days.length < 2}
-              onChange={e => { const wanted = Number(e.target.value); if(days?.length) jump(days.reduce((best,d) => Math.abs(d.day - wanted) < Math.abs(best - wanted) ? d.day : best,from)) }}/>
-          </div>
+            onClick={() => { if (!playing && day >= to) changeDay(from); setPlaying(!playing) }}>{playing ? 'Pause' : day >= to ? 'Replay' : 'Play'}</button>
+          <DayScrubber days={days} day={day} from={from} to={to} onJump={jump}/>
         </div>
         <div className="ra-checkpoints" aria-label="Timeline checkpoints">{checkpoints.map(m=>
           <button type="button" aria-pressed={day===m.at} key={m.label} onClick={() => jump(m.at)}>{m.label}</button>)}</div>

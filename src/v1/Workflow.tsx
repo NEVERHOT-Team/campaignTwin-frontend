@@ -1,3 +1,4 @@
+import { scrollToWorkspaceStart } from '../workspace-motion'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { WorkspaceHeader } from '../WorkspaceHeader'
 import { ApiError, createV1Client, type Approval, type Review, type Report, type RunState } from './client'
@@ -234,14 +235,24 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
     </label>
   }
   const phase = report ? (viewVerdict ? 'Verdict' : 'Arena') : run ? 'Run' : 'Plan'
+  const lastPhase = useRef(phase)
+  useEffect(() => {
+    if (lastPhase.current === phase) return
+    lastPhase.current = phase
+    const heading = document.querySelector<HTMLElement>('#planner-workspace h1')
+    if (!heading?.getClientRects().length) return
+    heading.tabIndex = -1
+    heading.focus({ preventScroll: true })
+    scrollToWorkspaceStart()
+  }, [phase])
   return <>
     <a className="skip-link" href="#planner-workspace">Skip to workspace</a>
     <WorkspaceHeader status="API workspace" action={onOpenDemo && <button type="button" onClick={onOpenDemo}>Demo arena</button>}><span className="v1-current-step">{phase}</span></WorkspaceHeader>
     <main className="workspace v1-workspace" id="planner-workspace">
       {restoring ? <p className="v1-loading" role="status">Reopening campaign…</p>
         : failedRestore ? <section className="v1-loading"><h1>Reopen campaign</h1><p role="alert">{error}</p><button className="intake-primary" onClick={() => setRestoreAttempt(n => n+1)}>Try again</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></section>
-        : report && !viewVerdict ? <LiveArena report={report} review={review} selection={selection} onVerdict={() => { setViewVerdict(true); window.scrollTo(0,0) }}/>
-        : report ? <><RunReport report={report} selection={selection}/><div className="v1-verdict-actions"><button className="intake-secondary" onClick={() => { setViewVerdict(false); window.scrollTo(0,0) }}>Back to arena</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></div></>
+        : report && !viewVerdict ? <LiveArena report={report} review={review} selection={selection} onVerdict={() => setViewVerdict(true)}/>
+        : report ? <><RunReport report={report} selection={selection}/><div className="v1-verdict-actions"><button className="intake-secondary" onClick={() => setViewVerdict(false)}>Back to arena</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></div></>
         : run ? <section className="v1-loading">
           <h1>{state?.status === 'error' ? 'Run failed' : state?.status === 'done' ? 'Opening verdict…' : 'Rehearsal in progress'}</h1>
           <p>{state?.failure?.message ?? (state ? `${humanize(state.status)} · ${Math.round(state.progress*100)}%` : 'Waiting for run status…')}</p>

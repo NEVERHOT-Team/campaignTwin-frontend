@@ -1,5 +1,6 @@
 import { baht, count, formatResult, percent, percentagePoints, pointsComparison, profitComparison } from '../verdict-values'
 import { ScenarioChoices } from '../ScenarioChoices'
+import { ProfitRangeChart, type ProfitRow } from '../ProfitRangeChart'
 import { humanize } from './planner'
 import { ReportEvidence } from './ReportEvidence'
 import type { Report } from './client'
@@ -27,8 +28,11 @@ const unavailableReasons = {
 }
 
 const findMetric = (scope:Scenario|undefined, id:Name) => scope?.metrics.find(metric => metric.metric === id)
+function metricRange(metric:Metric|undefined) {
+  return metric?.status === 'available' && metric.value !== null && typeof metric.value === 'object' ? metric.value : null
+}
 function median(metric:Metric|undefined) {
-  return metric?.status === 'available' && metric.value !== null && typeof metric.value === 'object' ? metric.value.p50 : null
+  return metricRange(metric)?.p50 ?? null
 }
 function probability(metric:Metric|undefined) {
   return metric?.status === 'available' && typeof metric.value === 'number' ? metric.value : null
@@ -53,7 +57,7 @@ function Probability({ metric, title, reference }: { metric?:Metric; title:strin
       <dd className="verdict-reason">{pointsComparison(value,source)}</dd>}
   </div>
 }
-function Gates({ plan, scope, emphasizeBreach }: { plan?:Plan; scope?:Scenario; emphasizeBreach:boolean }) {
+function Gates({ plan, scope }: { plan?:Plan; scope?:Scenario }) {
   const policy = plan?.input.evaluation
   if (!policy) return null
   const loss = probability(findMetric(scope,'probability_loss'))
@@ -61,7 +65,7 @@ function Gates({ plan, scope, emphasizeBreach }: { plan?:Plan; scope?:Scenario; 
   return <div className="verdict-live-gates">
     <p className="verdict-label">Original loss risk · {scope?.scenario ?? 'Unavailable'}</p>
     <h3>{loss == null ? 'Unavailable' : <>{percent.format(loss)} <small>of paired seeds</small></>}</h3>
-    {loss != null ? <p data-emphasis={emphasizeBreach ? 'negative' : undefined}>
+    {loss != null ? <p>
       {loss === policy.max_loss_probability ? 'At the approved limit' : `${percentagePoints(loss - policy.max_loss_probability)} ${loss > policy.max_loss_probability ? 'above' : 'below'} the limit`} of {percent.format(policy.max_loss_probability)}.
     </p> : <p>Approved limit {percent.format(policy.max_loss_probability)}.</p>}
     {goal && <p>{humanize(goal.metric)} target ≥ {formatResult(goal.minimum,goal.unit)}.</p>}
@@ -76,9 +80,12 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
   const originalMedian = median(findMetric(originalScope,'incremental_profit'))
   const comparison = plan?.role === 'conservative' ? originalScope : undefined
   const scopeLabel = scenario ? 'Scenario ' + scenario : 'Scenario unavailable'
-  const guardrailHold = report.decision.status === 'hold' && report.decision.reason_code === 'guardrail_failed'
-  const originalRisk = probability(findMetric(originalScope,'probability_loss'))
-  const visibleBreach = guardrailHold && originalRisk != null && originalPlan != null && originalRisk > originalPlan.input.evaluation.max_loss_probability
+  const profitRow = (id:string, label:string, scope?:Scenario): ProfitRow => {
+    const metric = findMetric(scope,'incremental_profit')
+    return { id, label, profit:metricRange(metric), reason:scope ? unavailable(metric) : 'Plan was not evaluated for this scenario' }
+  }
+  const chartRows = plans.length ? plans.map(item=>profitRow(item.input.plan_id,planLabels[item.role],getScope(item))) :
+    [profitRow('original','Your plan',originalScope)]
   const input = plan?.input
   const policy = report.data_versions.evaluation_policy
   const evaluatedAt = new Date(report.evaluated_at)
@@ -87,21 +94,23 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
     <header className="verdict-header"><div><h1>Campaign verdict</h1>
       <p>{policy?.startsWith('synthetic-') && 'Synthetic evaluation · '}Approved revision {report.revision} · Paired no-campaign comparison</p>
     </div></header>
-    <section className="verdict-decision" aria-labelledby="live-verdict-decision">
-      <div><p className="verdict-label">Decision on your original plan</p>
-        <h2 id="live-verdict-decision" data-emphasis={report.decision.status === 'proceed' ? 'positive' : undefined}>{humanize(report.decision.status)}</h2>
-        <p data-emphasis={report.decision.status === 'hold' && !visibleBreach ? 'negative' : undefined}>{report.decision.explanation}</p></div>
-      <Gates plan={originalPlan} scope={originalScope} emphasizeBreach={visibleBreach}/>
-    </section>
+    {scenario && <ScenarioChoices label="Evaluated scenario"
+      options={results.map(({scenario:id})=>({id, label:policy === 'synthetic-tissue-v1' && id === 'S1' ? 'S1 · No rival action' : id}))}
+      value={scenario} onChange={selection.setScenarioId}
+      description={results.length === 1 ? 'One scenario was evaluated for ' + (plan ? 'this plan.' : 'this run.') : undefined}
+    />}
+    <div className="verdict-overview">
+      <section className="verdict-decision" aria-labelledby="live-verdict-decision">
+        <div><p className="verdict-label">Decision on your original plan</p>
+          <h2 id="live-verdict-decision">{humanize(report.decision.status)}</h2>
+          <p>{report.decision.explanation}</p></div>
+        <Gates plan={originalPlan} scope={originalScope}/>
+      </section>
+      <ProfitRangeChart rows={chartRows} focusId={report.decision.status === 'insufficient_evidence' ? undefined : plan?.input.plan_id ?? 'original'}/>
+    </div>
 
-    <section aria-labelledby="live-compare-plans"><header className="verdict-comparison-heading">
-      <div><h2 id="live-compare-plans">{plans.length ? 'Compare plans' : 'Scenario results'}</h2><p>Profit after costs, relative to the paired baseline.</p></div>
-    </header>
-      {scenario && <ScenarioChoices label="Evaluated scenario"
-        options={results.map(({scenario:id})=>({id, label:policy === 'synthetic-tissue-v1' && id === 'S1' ? 'S1 · No rival action' : id}))}
-        value={scenario} onChange={selection.setScenarioId}
-        description={results.length === 1 ? 'One scenario was evaluated for ' + (plan ? 'this plan.' : 'this run.') : undefined}
-      />}
+    <section aria-labelledby="live-compare-plans">
+      <header className="verdict-comparison-heading"><h2 id="live-compare-plans">{plans.length ? 'Compare plans' : 'Scenario results'}</h2></header>
       {plans.length > 0 && <div className="verdict-plan-options" role="group" aria-label="Select a plan to inspect">{plans.map(p=>{
         const scope = getScope(p)
         const profit = median(findMetric(scope,'incremental_profit'))
@@ -128,7 +137,7 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
           <thead><tr><th scope="col">Outcome</th><th scope="col">P10</th><th scope="col">Median · P50</th><th scope="col">P90</th></tr></thead>
           <tbody>{rangeMetrics.map(({id,label})=>{
             const metric = findMetric(activeScope,id)
-            const range = metric?.status === 'available' && typeof metric.value === 'object' ? metric.value : null
+            const range = metricRange(metric)
             const ref = median(findMetric(comparison,id))
             return <tr key={id}><th scope="row">{label}{id === 'subsidy_leakage' && range && ref != null && <small className="verdict-table-detail">{pointsComparison(range.p50,ref)} at P50</small>}</th>
               {range && metric ? quantiles.map(q=><td key={q}>{formatResult(range[q],metric.unit)}</td>) :

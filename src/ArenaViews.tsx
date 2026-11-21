@@ -47,7 +47,7 @@ export function ArenaViews({ twoD, isometric, flow, onViewChange }: Props) {
     buttons.current[next]?.focus()
   }
 
-  return <div className="arena-viewer">
+  return <div className="arena-viewer" data-view={view}>
     <div className="arena-view-tabs" role="tablist" aria-label="Arena view">
       {views.map(({ id, label }, i) => <button key={id} ref={el => { buttons.current[i] = el }}
         id={group + '-tab-' + id} type="button" role="tab" aria-selected={id === view}

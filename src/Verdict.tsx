@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { money, type Backtest, type Report, type Result } from './model'
 import { ScenarioChoices } from './ScenarioChoices'
+import { ProfitRangeChart } from './ProfitRangeChart'
 import { attainmentRate, formatResult, percent, pointsComparison, profitComparison } from './verdict-values'
 import './verdict.css'
 
@@ -130,27 +131,30 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
         <button type="button" onClick={onInput}>Edit campaign</button>
       </div>
     </header>
-
-    <section aria-labelledby="verdict-decision" className="verdict-decision">
-      <div><p className="verdict-label">Recommendation</p>
-        <h2 id="verdict-decision" data-emphasis={recommended ? 'positive' : undefined}>{decision}</h2>
-        <p>{recommendation?.summary ?? report.integrity.reason ?? 'This run has insufficient evidence to recommend a plan.'}</p>
-      </div>
-      <div className="verdict-confidence"><p className="verdict-label">Confidence</p>
-        <h3>{report.confidence.label}</h3>
-        <p>{report.confidence.reason}</p>
-      </div>
-    </section>
+    {report.scenarios.length > 0 && <ScenarioChoices
+      options={report.scenarios.map(item => ({ id:item.scenario_id, label:item.label, description:item.description }))}
+      value={scenario} onChange={changeScenario}
+    />}
+    <div className="verdict-overview">
+      <section aria-labelledby="verdict-decision" className="verdict-decision">
+        <div><p className="verdict-label">Recommendation</p>
+          <h2 id="verdict-decision">{decision}</h2>
+          <p>{recommendation?.summary ?? report.integrity.reason ?? 'This run has insufficient evidence to recommend a plan.'}</p>
+        </div>
+        <div className="verdict-confidence"><p className="verdict-label">Confidence</p>
+          <h3>{report.confidence.label}</h3>
+          <p>{report.confidence.reason}</p>
+        </div>
+      </section>
+      <ProfitRangeChart focusId={report.integrity.status === 'passed' ? recommended?.plan_id ?? originalId : undefined} rows={plans.map(plan => {
+        const result = resultFor(plan.plan_id, scenario)
+        return { id:plan.plan_id, label:plan.label, profit:result?.metrics.incremental_profit_thb,
+          reason:result?.metric_unavailable_reasons?.incremental_profit_thb }
+      })}/>
+    </div>
 
     <section aria-labelledby="verdict-comparison">
-      <header className="verdict-comparison-heading">
-        <div><h2 id="verdict-comparison">Compare plans</h2><p>Incremental profit after costs, compared with no campaign.</p></div>
-      </header>
-      {report.scenarios.length > 0 && <ScenarioChoices
-        options={report.scenarios.map(item => ({ id:item.scenario_id, label:item.label }))}
-        value={scenario} onChange={changeScenario}
-        description={report.scenarios.find(item => item.scenario_id === scenario)?.description}
-      />}
+      <header className="verdict-comparison-heading"><h2 id="verdict-comparison">Compare plans</h2></header>
       {plans.length > 0 ? <div className="verdict-plans">{plans.map(plan =>
         <PlanComparison key={plan.plan_id} plan={plan} result={resultFor(plan.plan_id, scenario)} goalThb={report.goal_thb} reference={plan.role === 'alternative' ? originalResult : undefined} recommended={recommended?.plan_id === plan.plan_id}/>
       )}</div> : <p>Campaign plans unavailable for this run.</p>}

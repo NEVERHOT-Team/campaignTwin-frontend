@@ -38,3 +38,30 @@
   .arena-view-tabs { width: 100%; margin-bottom: 9px; }
   .arena-view-tabs [role="tab"] { flex: 1; min-height: 42px; }
 }
+
+/* The selected surface moves between equally sized tabs without reflowing their labels. */
+.arena-view-tabs {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.arena-view-tabs::before {
+  content: '';
+  position: absolute;
+  inset: 3px auto 3px 3px;
+  width: calc((100% - 10px) / 3);
+  border: 1px solid #555;
+  background: #323232;
+  border-radius: 7px;
+  pointer-events: none;
+  transition: transform .28s cubic-bezier(.22,1,.36,1);
+}
+.arena-viewer[data-view="2d"] .arena-view-tabs::before { transform: translateX(calc(100% + 2px)); }
+.arena-viewer[data-view="flow"] .arena-view-tabs::before { transform: translateX(calc(200% + 4px)); }
+.arena-view-tabs [role="tab"][aria-selected="true"] { background: transparent; border-color: transparent; }
+.ra-layout:has(.arena-viewer[data-view="flow"]) {
+  grid-template-columns: minmax(0,1fr);
+  grid-template-areas: 'market';
+}
+.ra-layout:has(.arena-viewer[data-view="flow"]) > :is(.ra-rail,.ra-trend) { display: none; }
