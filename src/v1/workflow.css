@@ -1,0 +1,43 @@
+.v1-workspace { padding-bottom:40px }
+.v1-current-step { color:#eaeaea;font-size:.88rem }
+.v1-intake .intake-heading { display:flex;align-items:center;justify-content:space-between;gap:12px }
+.v1-intake .intake-heading small,.v1-intake .intake-composer-actions small,.v1-intake .intake-field small { font-size:.75rem;color:#a9a9a9 }
+.v1-intake .v1-transcript { overflow-y:auto;max-height:min(64vh,660px);scrollbar-width:thin;scrollbar-color:#424242 #101010 }
+.v1-intake .intake-turn small { display:block;font-size:.72rem;color:#aaa;margin-bottom:5px }
+.v1-intake .intake-turn p { white-space:pre-wrap;overflow-wrap:anywhere }
+.v1-fields { border:0;padding:0;margin:0;min-width:0 }
+.v1-fields h3,.v1-suggestions h2,.v1-evidence h3 { font-size:.9rem;font-weight:600;margin:18px 0 8px }
+.v1-feedback,.v1-loading [role=alert] { white-space:pre-line;overflow-wrap:anywhere;color:#eee;font-size:.875rem;margin-top:10px }
+.v1-loading { max-width:720px;margin:56px auto;display:grid;justify-items:start;gap:12px }
+.v1-loading h1,.v1-report h1 { color:#f4f4f4;font-size:clamp(26px,3vw,36px);letter-spacing:-.035em;font-weight:600 }
+.v1-loading p,.v1-report p,.v1-evidence p,.v1-evidence li,.v1-evidence dd { color:#b7b7b7;font-size:.875rem;line-height:1.55 }
+.v1-evidence,.v1-suggestions,.v1-approval { border-block-start:1px solid #292929;padding:12px 0;margin-top:16px }
+.v1-evidence summary { padding:6px 0;min-height:36px;font-weight:550;font-size:.875rem;color:#e8e8e8;cursor:pointer }
+.v1-evidence .intake-field-grid { margin:12px 0 }
+.v1-evidence ul { list-style:disc;padding-left:20px;margin-top:5px }
+.v1-evidence dl { display:grid;gap:8px }
+.v1-evidence dt { font-size:.83rem;font-weight:550;color:#eee }
+.v1-evidence dd { margin:1px 0;overflow-wrap:anywhere }
+.v1-candidate { display:flex;align-items:baseline;gap:9px;min-height:38px;padding:6px 0;font-size:.88rem;cursor:pointer }
+.v1-candidate input { flex:none;accent-color:#fff }
+.v1-candidate small { display:block;margin-top:3px;color:#bcbcbc;font-size:.8rem }
+.v1-suggestions button,.v1-approval button { margin-top:7px }
+.v1-questions { padding:4px 0;margin-top:5px }
+.v1-report { max-width:1080px;margin:36px auto }
+.v1-report h2 { font-size:1.15rem;font-weight:600;letter-spacing:-.018em }
+.v1-report-title { padding-bottom:24px }
+.v1-decision { padding:18px 0;border-block:1px solid #333 }
+.v1-decision p,.v1-results>p { margin-top:6px }
+.v1-results { margin:24px 0 }
+.v1-comparisons { display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:10px }
+.v1-comparisons button { display:grid;align-content:start;gap:3px;text-align:start;padding:13px;background:#141414;border:1px solid #303030;border-radius:10px }
+.v1-comparisons button[aria-pressed=true] { border-color:#999;background:#1a1a1a }
+.v1-comparisons button span,.v1-comparisons button small { font-size:.78rem;color:#bbb }
+.v1-comparisons button b { font-size:1.2rem;margin-top:8px }
+.v1-report table { width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums }
+.v1-report th,.v1-report td { border-bottom:1px solid #2d2d2d;padding:10px 8px;text-align:left;font-size:.85rem }
+.v1-report .table-scroll { margin:6px 0;overflow:auto }
+@media(max-width:740px){.v1-intake .v1-transcript{max-height:440px}.v1-report{margin:20px auto}.v1-comparisons{grid-template-columns:1fr}}
+.v1-verdict-actions { display:flex;gap:14px;align-items:center;margin:20px auto;max-width:1080px }
+
+.v1-fields .v1-offer-grid { grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,.9fr) }

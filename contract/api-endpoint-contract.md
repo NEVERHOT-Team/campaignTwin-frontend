@@ -1,6 +1,10 @@
 # CampaignTwin Demo 1 · API Endpoint Contract
 
-**For Phee, Big, Mic and Gan. Review draft for contract sign-off.** The five frozen operation names are the integration baseline. New routes, field names, HTTP codes and example values below are proposals unless marked frozen or required by the SRS. Big's published FastAPI OpenAPI at an agreed revision will define the wire contract. The frozen brief came from the earlier backend checkout at `a7981b7`. The current `campaignTwin-backend` checkout has no commits, so these examples have yet to be validated against a published OpenAPI schema.
+**Current frontend integration target.** Big’s `docs/campaigntwin-api-v1.openapi.yaml` at backend `dev@26e5e96` is implemented. The seven operations cover interview creation and resume, natural-language and structured revisions, approval, submission, status and reports. The frontend handoff records planner-owned inputs, backend-derived fields, the single synthetic catalog choice and aggregate Arena limits. [Frontend v1 handoff](../docs/backend-v1-handoff.md) · [Pinned OpenAPI](https://github.com/NEVERHOT-Team/campaignTwin-backend/blob/26e5e96/docs/campaigntwin-api-v1.openapi.yaml)
+
+## Earlier Demo 1 proposal
+
+The remaining sections preserve the original frontend proposal and the synthetic demo’s design context. Its route names and example payloads predate Big’s v1 draft.
 
 ## Scope and sources
 
