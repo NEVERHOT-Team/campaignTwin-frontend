@@ -1,6 +1,10 @@
+import { Fragment } from 'react'
 import { baht, count, formatResult, percent, percentagePoints, pointsComparison, profitComparison } from '../verdict-values'
 import { ScenarioChoices } from '../ScenarioChoices'
+import { ProductGoods, catalogPhoto } from '../ProductGoods'
 import { ProfitRangeChart, type ProfitRow } from '../ProfitRangeChart'
+import { VerdictInsights } from '../VerdictInsights'
+import { evaluationInsights } from '../verdict-insights'
 import { humanize } from './planner'
 import { ReportEvidence } from './ReportEvidence'
 import type { Report } from './client'
@@ -76,6 +80,10 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
   const { plans, originalPlan, plan, results, scene: activeScope, choosePlan } = resolveRunSelection(report, selection)
   const scenario = activeScope?.scenario
   const getScope = (item: Plan) => item.scenario_results.find(s => s.scenario === scenario)
+  const campaigns = [...plans.filter(p => p.role === 'original'), ...plans.filter(p => p.role === 'conservative')]
+  const references = plans.filter(p => p.role === 'baseline')
+  const paired = campaigns.length === 2 && campaigns[0].role === 'original' && campaigns[1].role === 'conservative' &&
+    campaigns.every(getScope)
   const originalScope = report.scenario_results.find(s=>s.scenario === scenario) ?? (originalPlan && getScope(originalPlan))
   const originalMedian = median(findMetric(originalScope,'incremental_profit'))
   const comparison = plan?.role === 'conservative' ? originalScope : undefined
@@ -86,13 +94,17 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
   }
   const chartRows = plans.length ? plans.map(item=>profitRow(item.input.plan_id,planLabels[item.role],getScope(item))) :
     [profitRow('original','Your plan',originalScope)]
+  const insights = evaluationInsights(plans.length
+    ? [...campaigns,...references].map(p => ({ label:planLabels[p.role], scope:getScope(p) }))
+    : [{ label:planLabels.original, scope:originalScope }], scopeLabel)
   const input = plan?.input
   const policy = report.data_versions.evaluation_policy
   const evaluatedAt = new Date(report.evaluated_at)
   const evaluationStamp = Number.isNaN(evaluatedAt.valueOf()) ? report.evaluated_at : evaluationTime.format(evaluatedAt) + ' UTC'
   return <div className="campaign-verdict verdict-live">
-    <header className="verdict-header"><div><h1>Campaign verdict</h1>
+    <header className="verdict-header"><div className="verdict-product-title"><div><h1>Campaign verdict</h1>
       <p>{policy?.startsWith('synthetic-') && 'Synthetic evaluation · '}Approved revision {report.revision} · Paired no-campaign comparison</p>
+      </div><ProductGoods photo={catalogPhoto(plan?.input.product ?? originalPlan?.input.product)}/>
     </div></header>
     {scenario && <ScenarioChoices label="Evaluated scenario"
       options={results.map(({scenario:id})=>({id, label:policy === 'synthetic-tissue-v1' && id === 'S1' ? 'S1 · No rival action' : id}))}
@@ -106,24 +118,45 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
           <p>{report.decision.explanation}</p></div>
         <Gates plan={originalPlan} scope={originalScope}/>
       </section>
-      <ProfitRangeChart rows={chartRows} focusId={report.decision.status === 'insufficient_evidence' ? undefined : plan?.input.plan_id ?? 'original'}/>
+      <ProfitRangeChart rows={chartRows} focusId={!plans.length && report.decision.status !== 'insufficient_evidence' ? 'original' : undefined}/>
     </div>
 
     <section aria-labelledby="live-compare-plans">
       <header className="verdict-comparison-heading"><h2 id="live-compare-plans">{plans.length ? 'Compare plans' : 'Scenario results'}</h2></header>
-      {plans.length > 0 && <div className="verdict-plan-options" role="group" aria-label="Select a plan to inspect">{plans.map(p=>{
-        const scope = getScope(p)
-        const profit = median(findMetric(scope,'incremental_profit'))
-        const active = p.input.plan_id === plan?.input.plan_id
-        return <button key={p.input.plan_id} type="button" aria-pressed={active} onClick={()=>choosePlan(p.input.plan_id)}>
-          <span className="verdict-option-heading"><strong>{planLabels[p.role]}</strong>{active && <small>Selected</small>}</span>
-          <span>{offerText(p)}</span><b>{profit == null ? 'Unavailable' : baht.format(profit)}</b>
-          <small>{scope ? 'Median incremental profit' : p.scenario_results[0] ? 'View results for ' + p.scenario_results[0].scenario : 'No evaluated scenarios'}</small>
-          {p.role === 'conservative' && profit != null && originalMedian != null &&
-            <span className="verdict-option-delta">{profitComparison(profit,originalMedian)}</span>}
-        </button>
-      })}</div>}
+      {plans.length > 0 && <div className="verdict-plan-options" role="group" aria-label="Select a plan to inspect">
+        {campaigns.length > 0 && <div className="verdict-campaign-options" data-paired={paired || undefined}>
+          {campaigns.map((p, index)=>{
+            const scope = getScope(p)
+            const profit = median(findMetric(scope,'incremental_profit'))
+            const active = p.input.plan_id === plan?.input.plan_id
+            return <Fragment key={p.input.plan_id}>
+              {paired && index === 1 && <span className="verdict-versus" aria-hidden="true">VS</span>}
+              <button type="button" aria-pressed={active} onClick={()=>choosePlan(p.input.plan_id)}>
+                <span className="verdict-option-heading"><strong>{planLabels[p.role]}</strong>{active && <small>Selected</small>}</span>
+                <span>{offerText(p)}</span>
+                <b data-profit-sign={Math.sign(profit ?? 0) || undefined}>{profit == null ? 'Unavailable' : baht.format(profit)}</b>
+                <small>{scope ? 'Median incremental profit' : p.scenario_results[0] ? 'View results for ' + p.scenario_results[0].scenario : 'No evaluated scenarios'}</small>
+                {p.role === 'conservative' && profit != null && originalMedian != null &&
+                  <span className="verdict-option-delta">{profitComparison(profit,originalMedian)}</span>}
+              </button>
+            </Fragment>
+          })}
+        </div>}
+        {references.map(reference=>{
+          const scope = getScope(reference)
+          const profit = median(findMetric(scope,'incremental_profit'))
+          const active = reference.input.plan_id === plan?.input.plan_id
+          return <button key={reference.input.plan_id} className="verdict-reference-option" type="button" aria-pressed={active} onClick={()=>choosePlan(reference.input.plan_id)}>
+            <span><strong>{planLabels.baseline}</strong><small>{active ? 'Selected reference' : campaigns.length > 1 ? 'Shared reference' : 'Reference'}</small></span>
+            <span>{scope ? 'Median incremental profit' : reference.scenario_results[0] ? 'View results for ' + reference.scenario_results[0].scenario : 'No evaluated scenarios'}
+              <b>{profit == null ? 'Unavailable' : baht.format(profit)}</b>
+            </span>
+          </button>
+        })}
+      </div>}
     </section>
+
+    <VerdictInsights panels={insights}/>
 
     <section className="verdict-live-outcomes" aria-labelledby="live-verdict-scope">
       <h2 id="live-verdict-scope">{plan ? planLabels[plan.role] + ' · ' : ''}{scopeLabel}</h2>

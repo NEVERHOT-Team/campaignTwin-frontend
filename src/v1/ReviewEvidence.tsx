@@ -1,11 +1,11 @@
 import type { Review } from './client'
 import { humanize } from './planner'
 
-export function ReviewEvidence({ review }: { review: Review }) {
+export function ReviewEvidence({ review, summary = 'Evidence and assumptions' }: { review: Review; summary?: string }) {
   const {resolved_product: product, resolved_offer: offer, evaluation} = review
   const segments = review.segments.filter(s => s.households >= 50)
   return <details className="v1-evidence">
-    <summary>Evidence and assumptions</summary>
+    <summary>{summary}</summary>
     <h3>Product and offer</h3>
     <p>{product ? `${product.label} · ${product.pack_label} · ${humanize(product.channel)} · ${product.timezone}` : 'Awaiting an exact product and selling pack.'}</p>
     {offer && <p>{humanize(offer.discount.kind)} · {offer.discount.value} {offer.discount.unit} · {humanize(offer.discount.eligibility ?? '')} · {offer.funder} funded · {offer.stackable ? 'stackable' : 'single offer'} · up to {offer.max_redemptions_per_order} per order · {offer.eligible_order_scope}{offer.min_spend_basis && ' · ' + offer.min_spend_basis}</p>}

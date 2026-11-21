@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { ProductGoods, categoryPhoto } from './ProductGoods'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { RunApproval } from './RunApproval'
 import { CampaignControl, CampaignFields, Disclosure, questionErrors } from './CampaignFields'
 import { campaignFields, goalFields, labelsForCorePaths, mechanicFields, type FieldDescriptor, type Question } from './campaign'
 import { type Candidate, type Draft, type FieldKey, type ReviewContext, fieldKeys, fieldLabels, money, sampleBrief, validate } from './model'
@@ -71,7 +73,7 @@ function readAnswer(text:string, q:Question, draft:Draft):{value:string;error?:s
   return {value}
 }
 
-function CampaignChat({p}:{p:Props}){
+function CampaignChat({p, runApproval}:{p:Props; runApproval:ReactNode}){
   const [turns,setTurns]=useState<Turn[]>([])
   const [message,setMessage]=useState('')
   const [sending,setSending]=useState(false)
@@ -81,11 +83,11 @@ function CampaignChat({p}:{p:Props}){
   const locked=!!p.busy||sending
   const question=p.questions[0]
   const prompt=question?questionText(question):''
-  const hasConversation=!!(turns.length||question||sending)
+  const hasConversation=!!(turns.length||question||sending||runApproval)
   useEffect(()=>{
     const log=transcript.current
     if(log)log.scrollTop=log.scrollHeight
-  },[turns,prompt,sending,chatError])
+  },[turns,prompt,sending,chatError,p.review])
   function useSample(){
     p.onSample()
     setChatError('')
@@ -133,10 +135,18 @@ function CampaignChat({p}:{p:Props}){
           <p>{prompt}</p>
           {describeQuestion(question)?.choices && <p className="intake-question-choices">{describeQuestion(question)?.choices?.map(c=>c.replaceAll('_',' ')).join(' · ')}</p>}
         </div>}
+        {runApproval && p.review && <div className="intake-turn" data-speaker="assistant">
+          <p>{p.review.original_plan.label} · {p.review.original_plan.discount_pct}% voucher · {money(p.review.original_plan.total_budget_thb)} budget</p>
+          <Disclosure title="Plans and assumptions">
+            <p>{[p.review.original_plan.label,...p.candidates.filter(c=>p.chosen.includes(c.plan.plan_id)).map(c=>c.plan.label)].join(' · ')}</p>
+            <ul>{p.review.assumptions.map(assumption=><li key={assumption}>{assumption}</li>)}</ul>
+          </Disclosure>
+        </div>}
       </div> : <div className="intake-empty">
         <h2>What are you planning?</h2>
         <p>Describe your promotion and review the details in the form.</p>
       </div>}
+      {runApproval && <div className="intake-chat-run">{runApproval}</div>}
       <form className="intake-composer" onSubmit={send}>
         <label htmlFor="brief" className="sr-only">{question ? 'Reply to the campaign question' : 'Campaign brief'}</label>
         <textarea ref={composing} id="brief" value={message} onChange={e=>{setMessage(e.target.value);setChatError('')}} rows={2}
@@ -150,16 +160,14 @@ function CampaignChat({p}:{p:Props}){
         </div>
       </form>
       {chatError && <p className="intake-chat-error" role="alert">{chatError}</p>}
+      {runApproval && p.error && <p className="intake-chat-error">{p.error}</p>}
     </div>
   </section>
 }
 
-function PlanReview({p, blocked}:{p:Props;blocked:boolean}){
+function PlanReview({p, chosenInvalid, approval}:{p:Props;chosenInvalid:boolean;approval:ReactNode}){
   const r=p.review
   if(!r)return null
-  const chosenInvalid=p.candidates.some(c=>p.chosen.includes(c.plan.plan_id) && (c.issues.length ||
-    (p.candidateEdits[c.plan.plan_id]!==undefined && Number(p.candidateEdits[c.plan.plan_id])!==c.plan.discount_pct)))
-  const locked=!!p.busy||blocked||!!r.blocking_gaps.length||chosenInvalid
   return <section className="intake-review" aria-labelledby="review-title">
     <h3 id="review-title" tabIndex={-1}>Approve the run</h3>
     <p>{r.original_plan.label} · {r.original_plan.discount_pct}% voucher · {money(r.original_plan.total_budget_thb)} budget</p>
@@ -174,8 +182,7 @@ function PlanReview({p, blocked}:{p:Props;blocked:boolean}){
     <Disclosure title="Comparison and assumptions"><p>Each selected plan uses the same no-campaign baseline.</p><ul>{r.assumptions.map(a=><li key={a}>{a}</li>)}</ul></Disclosure>
     {r.blocking_gaps.map(g=><p className="intake-field-error" key={g}>{g}</p>)}
     {chosenInvalid && <p className="intake-field-error">Check the edited alternative or remove it before starting.</p>}
-    <label className="intake-check intake-approval"><input type="checkbox" checked={p.approved} onChange={e=>p.onApprove(e.target.checked)} disabled={locked}/>I approve the selected plans and assumptions.</label>
-    <button type="button" className="intake-primary" disabled={!p.approved||locked} onClick={p.onRun}>{p.busy==='run'?'Starting…':'Start simulation'}</button>
+    {approval}
   </section>
 }
 
@@ -184,6 +191,10 @@ export function Input(p:Props){
   const remaining=needed.filter(f=>!p.draft.confirmed.includes(f.field_id))
   const errors=questionErrors(p.questions)
   const disabled=!!p.busy
+  const chosenInvalid=p.candidates.some(c=>p.chosen.includes(c.plan.plan_id) && (c.issues.length ||
+    (p.candidateEdits[c.plan.plan_id]!==undefined && Number(p.candidateEdits[c.plan.plan_id])!==c.plan.discount_pct)))
+  const ready=!!p.review && !remaining.length && !p.review.blocking_gaps.length && !chosenInvalid && !p.questions.some(q=>q.blocking!==false)
+  const approval={checked:p.approved,disabled:disabled||!ready,onChange:p.onApprove,onRun:p.onRun}
   function campaign(path:string){
     const descriptor=fieldsByPath.get(path)!
     return <CampaignControl field={descriptor} value={p.draft.campaign[path]??''} issue={errors[path]} disabled={disabled} update={v=>p.onCampaignField(path,v)}/>
@@ -199,10 +210,11 @@ export function Input(p:Props){
   }
   return <div className="intake-workbench">
     <h1 className="sr-only">Campaign plan</h1>
-    <CampaignChat p={p}/>
+    <CampaignChat p={p} runApproval={ready && <RunApproval {...approval} label="Approve the selected plans and assumptions" action={p.busy==='run'?'Starting…':'Run simulation'}/>}/>
     <section className="intake-form" aria-labelledby="campaign-details-title">
       <header className="intake-heading"><h2 id="campaign-details-title">Campaign details</h2></header>
       <div className="intake-form-body">
+        <ProductGoods photo={categoryPhoto(p.draft.campaign['brand.category'], p.draft.values.brand)}/>
         {needed.length>0 && <Disclosure title={remaining.length?`Confirm details from your brief (${remaining.length})`:'Confirmed details from your brief'} openOnError={!!remaining.length}>
           <ul className="intake-candidates">{needed.map(f=><li key={f.field_id}>
             <label className="intake-check"><input type="checkbox" disabled={disabled} checked={p.draft.confirmed.includes(f.field_id)} aria-label={'Confirm '+fieldLabels[f.field_id].toLowerCase()} onChange={()=>p.onConfirm(f.field_id)}/>
@@ -226,7 +238,7 @@ export function Input(p:Props){
         {p.error && <p role="alert" className="intake-form-error">{p.error}</p>}
         {!p.review && <div className="intake-form-actions"><button className="intake-primary" type="button" onClick={p.onReview} disabled={disabled}>{p.busy==='review'?'Reviewing…':'Review campaign'}</button></div>}
         {p.review && !p.busy && !p.candidates.length && !p.review.blocking_gaps.length && !p.questions.length && p.notice && <p className="intake-review-notice" role="status">{p.notice}</p>}
-        <PlanReview p={p} blocked={!!remaining.length||p.questions.some(q=>q.blocking!==false)}/>
+        <PlanReview p={p} chosenInvalid={chosenInvalid} approval={<RunApproval {...approval} label="I approve the selected plans and assumptions." action={p.busy==='run'?'Starting…':'Start simulation'}/>}/>
       </div>
     </section>
   </div>

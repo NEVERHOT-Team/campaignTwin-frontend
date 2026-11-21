@@ -4,6 +4,7 @@ import { WorkflowMap } from './WorkflowMap'
 import { replayWorkflowEvidence } from './replay-workflow'
 import { ScenarioChoices } from './ScenarioChoices'
 import { ProfitValue } from './ProfitValue'
+import { ProductGoods, categoryPhoto } from './ProductGoods'
 import { PixelArena } from './PixelArena'
 import { DayScrubber } from './DayScrubber'
 import { ShopperPicker, shopperName } from './ShopperPicker'
@@ -192,6 +193,7 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
           <select className="ra-plan" id="ra-plan" value={planId} onChange={e => { setPlaying(false); changePlan(e.target.value) }}>
             {availablePlans.map(p => <option key={p.plan_id} value={p.plan_id}>{p.label}</option>)}
           </select>
+          <ProductGoods photo={categoryPhoto(report.inputs?.campaign['brand.category'], report.inputs?.original_plan.brand)}/>
           <dl className="ra-facts">{choice?.discount_pct != null && <div><dt>Voucher</dt><dd>{choice.discount_pct}% off</dd></div>}
             <div><dt>Window</dt><dd>Days {report.window.start_day}–{report.window.end_day}</dd></div>
           </dl>

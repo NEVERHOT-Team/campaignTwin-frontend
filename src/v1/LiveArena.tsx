@@ -4,6 +4,7 @@ import { ArenaViews, IsometricMarket } from '../ArenaViews'
 import { WorkflowMap, type WorkflowEvidence } from '../WorkflowMap'
 import { ScenarioChoices } from '../ScenarioChoices'
 import { ProfitValue } from '../ProfitValue'
+import { ProductGoods, catalogPhoto } from '../ProductGoods'
 import { humanize } from './planner'
 import type { Report, Review } from './client'
 import { resolveRunSelection, type RunSelection } from './run-selection'
@@ -181,6 +182,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
   const matchedReview = review?.review_id === report.review_id && review.revision === report.revision ? review : undefined
   const input = plan?.input
   const product = input?.product ?? matchedReview?.resolved_product
+  const photo = catalogPhoto(product)
   const offer = input ? input.offer : matchedReview?.resolved_offer
   const budget = input?.subsidy_budget ?? matchedReview?.facts.budget_thb
   const evaluation = input?.evaluation ?? matchedReview?.evaluation
@@ -227,7 +229,7 @@ export default function LiveArena({ report, review, selection, onVerdict, onOpen
             <select value={plan.input.plan_id} id="live-arena-plan" className="ra-plan" onChange={event => choosePlan(event.target.value)}>
               {plans.map(p => <option key={p.input.plan_id} value={p.input.plan_id}>{planLabels[p.role]}</option>)}
             </select></>}
-          {product && <p className="live-market-product">{product.label} · {product.pack_label}</p>}
+          {photo ? <ProductGoods photo={photo}/> : product && <p className="live-market-product">{product.label} · {product.pack_label}</p>}
           <dl className="ra-facts">
             {product && <div><dt>Channel</dt><dd>{humanize(product.channel)}</dd></div>}
             {offer !== undefined && <div><dt>Offer</dt><dd>{!input && offer === null ? 'Unresolved' : offerText(offer)}</dd></div>}

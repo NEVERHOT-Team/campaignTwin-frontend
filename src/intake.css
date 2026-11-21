@@ -39,6 +39,12 @@
 }
 .intake-empty p {color:var(--intake-secondary);margin:10px 0 0;font-size:14px;line-height:1.5}
 .intake-chat-main.has-conversation {justify-content:flex-end;padding-bottom:0}
+.intake-chat-run {
+  display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;
+  flex:none;border-top:1px solid var(--intake-line);padding:10px 0;margin-bottom:5px;
+}
+.intake-chat-run .intake-approval {margin:0;min-height:44px;padding:12px 0}
+.intake-chat-run .intake-primary {flex:none;min-height:44px}
 .intake-transcript {
   max-height:100%;overflow-y:auto;min-height:0;overscroll-behavior:contain;
   display:flex;flex:1;flex-direction:column;align-items:flex-start;

@@ -207,3 +207,37 @@ test('the demo reports profit and goal attainment against its saved review input
   const example = report.results.find(row => row.plan_id === report.plans[0].plan_id && row.scenario_id === 'S1')
   assert.deepEqual(example.goal_attainment, { met_samples: 19, valid_paired_samples: 20 })
 })
+
+test('Verdict trends preserve missing days and use the selected scenario’s observations', async () => {
+  const { replayInsights } = await vite.ssrLoadModule('/src/verdict-insights.ts')
+  const replay = {
+    scenarios: [{ scenario_id: 'S1', label: 'Quiet' }, { scenario_id: 'S2', label: 'Match' }],
+    plans: [{ plan_id: 'p', label: 'Original', role: 'original' }],
+    window: { start_day: 1, end_day: 2 }, goal_thb: 500,
+    results: [
+      { plan_id: 'p', scenario_id: 'S1', daily: [{ day: 1, brand_share_pct: 87 }] },
+      { plan_id: 'p', scenario_id: 'S2', daily: [
+        { day: 1, brand_share_pct: 0, baseline_share_pct: 10 },
+        { day: 4, brand_share_pct: 23, baseline_share_pct: 14 },
+      ], goal_attainment: { met_samples: 1, valid_paired_samples: 4 } },
+    ],
+  }
+  const [trend, target] = replayInsights(replay, 'S2')
+  assert.deepEqual(trend.rows.filter(row => row.values.plan0 != null).map(row => [row.x, row.values.plan0]), [[1, 0], [4, 23]])
+  assert.ok(trend.rows.some(row => row.x > 1 && row.x < 4 && row.values.plan0 == null))
+  assert.equal(trend.rows[0].values.baseline, 10)
+  assert.equal(target.rows[0].values.target, 25)
+})
+
+test('live insight charts distinguish missing estimates, measured zero and unevaluated plans', async () => {
+  const { evaluationInsights } = await vite.ssrLoadModule('/src/verdict-insights.ts')
+  const metric = (name, value) => ({ metric: name, status: 'available', unit: 'fraction', value })
+  const metrics = [
+    metric('probability_loss', 0),
+    { metric: 'probability_hit_target', status: 'unavailable', unit: 'fraction', value: null },
+    metric('subsidy_leakage', { p10: 0, p50: 0.25, p90: 0.75 }),
+  ]
+  const [odds, leakage] = evaluationInsights([{ label: 'Original', scope: { scenario: 'S2', metrics } }, { label: 'Other scenario' }], 'S2')
+  assert.deepEqual(odds.rows, [{ label: 'Original', values: { loss: 0, target: null } }])
+  assert.deepEqual(leakage.rows, [{ label: 'Original', values: { p10: 0, p50: 25, p90: 75 } }])
+})

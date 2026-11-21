@@ -1,7 +1,10 @@
-import type { ReactNode } from 'react'
+import { Fragment, useMemo, type ReactNode } from 'react'
 import { money, type Backtest, type Report, type Result } from './model'
 import { ScenarioChoices } from './ScenarioChoices'
+import { ProductGoods, categoryPhoto } from './ProductGoods'
 import { ProfitRangeChart } from './ProfitRangeChart'
+import { VerdictInsights } from './VerdictInsights'
+import { replayInsights } from './verdict-insights'
 import { attainmentRate, formatResult, percent, pointsComparison, profitComparison } from './verdict-values'
 import './verdict.css'
 
@@ -52,7 +55,7 @@ function PlanComparison({ plan, result, goalThb, recommended, reference }: {
     <dl className="verdict-profit">
       <div className="median">
         <dt>Median incremental profit · P50</dt>
-        <dd>{profit ? money(profit.p50) : 'Unavailable'}</dd>
+        <dd data-profit-sign={Math.sign(profit?.p50 ?? 0) || undefined}>{profit ? money(profit.p50) : 'Unavailable'}</dd>
         {!profit && reasons?.incremental_profit_thb && <dd className="verdict-missing">{reasons.incremental_profit_thb}</dd>}
       </div>
       {profit && referenceProfit != null && <div className="verdict-profit-delta"><dt className="verdict-sr-only">Change in median profit</dt>
@@ -113,8 +116,9 @@ function HistoricalCheck({ history, historyStatus }: Pick<VerdictProps, 'history
 }
 
 export function Verdict({ report, scenario, changeScenario, history, historyStatus, onArena, onInput }: VerdictProps) {
+  const insights = useMemo(() => replayInsights(report,scenario), [report,scenario])
   const recommendation = report.integrity.status === 'passed' ? report.recommendation : null
-  const plans = report.plans.filter(plan => plan.role !== 'baseline')
+  const plans = [...report.plans.filter(plan => plan.role === 'original'), ...report.plans.filter(plan => plan.role === 'alternative')]
   const baseline = report.plans.find(plan => plan.role === 'baseline')
   const originalId = plans.find(plan => plan.role === 'original')?.plan_id
   const originalResult = report.results.find(r => r.plan_id === originalId && r.scenario_id === scenario)
@@ -122,10 +126,14 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
   const decision = recommended?.label ?? (recommendation?.plan_id === null ? 'Hold the campaign' : 'No recommendation available')
   const resultFor = (planId: string, scenarioId: string) =>
     report.results.find(result => result.plan_id === planId && result.scenario_id === scenarioId)
+  const paired = plans.length === 2 && plans[0].role === 'original' && plans[1].role === 'alternative' &&
+    plans.every(plan => resultFor(plan.plan_id, scenario))
 
   return <div className="campaign-verdict">
     <header className="verdict-header">
-      <h1>Campaign verdict</h1>
+      <div className="verdict-product-title"><h1>Campaign verdict</h1>
+        <ProductGoods photo={categoryPhoto(report.inputs?.campaign['brand.category'], report.inputs?.original_plan.brand)}/>
+      </div>
       <div className="verdict-actions">
         <button type="button" onClick={onArena}>Back to arena</button>
         <button type="button" onClick={onInput}>Edit campaign</button>
@@ -146,7 +154,7 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
           <p>{report.confidence.reason}</p>
         </div>
       </section>
-      <ProfitRangeChart focusId={report.integrity.status === 'passed' ? recommended?.plan_id ?? originalId : undefined} rows={plans.map(plan => {
+      <ProfitRangeChart rows={plans.map(plan => {
         const result = resultFor(plan.plan_id, scenario)
         return { id:plan.plan_id, label:plan.label, profit:result?.metrics.incremental_profit_thb,
           reason:result?.metric_unavailable_reasons?.incremental_profit_thb }
@@ -154,11 +162,18 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
     </div>
 
     <section aria-labelledby="verdict-comparison">
-      <header className="verdict-comparison-heading"><h2 id="verdict-comparison">Compare plans</h2></header>
-      {plans.length > 0 ? <div className="verdict-plans">{plans.map(plan =>
-        <PlanComparison key={plan.plan_id} plan={plan} result={resultFor(plan.plan_id, scenario)} goalThb={report.goal_thb} reference={plan.role === 'alternative' ? originalResult : undefined} recommended={recommended?.plan_id === plan.plan_id}/>
+      <header className="verdict-comparison-heading"><h2 id="verdict-comparison">Compare plans</h2>
+        {baseline && resultFor(baseline.plan_id, scenario) && <p>{plans.length > 1 ? 'Shared reference' : 'Reference'} · {baseline.label}</p>}
+      </header>
+      {plans.length > 0 ? <div className="verdict-plans" data-paired={paired || undefined}>{plans.map((plan, index) =>
+        <Fragment key={plan.plan_id}>
+          {paired && index === 1 && <span className="verdict-versus" aria-hidden="true">VS</span>}
+          <PlanComparison plan={plan} result={resultFor(plan.plan_id, scenario)} goalThb={report.goal_thb} reference={plan.role === 'alternative' ? originalResult : undefined} recommended={recommended?.plan_id === plan.plan_id}/>
+        </Fragment>
       )}</div> : <p>Campaign plans unavailable for this run.</p>}
     </section>
+
+    <VerdictInsights panels={insights}/>
 
     <div className="verdict-evidence">
       <section aria-labelledby="verdict-downside">

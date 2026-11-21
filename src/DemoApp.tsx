@@ -45,6 +45,7 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
   const [trace, setTrace] = useState<Trace | null>(null)
   const [traceStatus, setTraceStatus] = useState('')
   const submission = useRef<{ body: string; id: string } | undefined>(undefined)
+  const submitting = useRef(false)
   const report = run?.report
   const runId = run?.run_id
   const hasReport = Boolean(report)
@@ -298,7 +299,7 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
   }
 
   async function startRun() {
-    if (!review || !approved || busy || pendingFields(draft).length || review.blocking_gaps.length || questions.some(q => q.blocking !== false)) return
+    if (!review || !approved || busy || submitting.current || pendingFields(draft).length || review.blocking_gaps.length || questions.some(q => q.blocking !== false)) return
     const included = candidates.filter(c => chosen.includes(c.plan.plan_id))
     if (included.some(c => c.issues.length || (candidateEdits[c.plan.plan_id] !== undefined && Number(candidateEdits[c.plan.plan_id]) !== c.plan.discount_pct))) return
     const approval: Approval = {
@@ -307,13 +308,14 @@ export default function DemoApp({ arenaVisit, active, onOpenLive }: { arenaVisit
     }
     const body = JSON.stringify(approval)
     if (submission.current?.body !== body) submission.current = { body, id: crypto.randomUUID() }
+    submitting.current = true
     setBusy('run'); setError('')
     try {
       const reply = await api.simulate(approval, submission.current.id)
       setReplay(null); setRun({ ...reply, progress: null, report: null }); setPollProblem(''); setSelected(null); go('arena')
       submission.current = undefined
     } catch (err) { setError(errorText(err, 'The run could not be started.')) }
-    finally { setBusy('') }
+    finally { submitting.current = false; setBusy('') }
   }
 
   async function openReplay() {

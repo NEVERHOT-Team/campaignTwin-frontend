@@ -7,6 +7,8 @@ import { RunReport } from './RunReport'
 import { useRunSelection } from './run-selection'
 import LiveArena from './LiveArena'
 import { ReviewEvidence } from './ReviewEvidence'
+import { RunApproval } from '../RunApproval'
+import { ProductGoods, catalogPhoto } from '../ProductGoods'
 import '../intake.css'
 import './workflow.css'
 
@@ -30,7 +32,7 @@ function summary(r:Review) {
   return r.questions[0]?.prompt ?? (r.status === 'ready_for_approval' ? 'Your campaign is ready for approval.' : r.blockers[0]?.message)
 }
 function addPendingQuestion(turns:Turn[], r:Review|null) {
-  const prompt = r && summary(r)
+  const prompt = r?.questions[0]?.prompt ?? r?.blockers[0]?.message
   return prompt ? [...turns,{speaker:'assistant' as const,text:prompt}] : turns
 }
 
@@ -58,12 +60,14 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
   const [error,setError] = useState('')
   const [notice,setNotice] = useState('')
   const [pending,setPending] = useState<Pending|null>(null)
+  const submitting = useRef(false)
   const composer = useRef<HTMLTextAreaElement>(null)
   const transcript = useRef<HTMLDivElement>(null)
   const fields = toFields(form)
   const edits = changes(review?.facts ?? {},fields,review?.fact_origins['/facts/offer/eligibility'] === 'default')
   const dirty = Object.keys(edits).length > 0 || confirmed.length > 0
   const locked = Boolean(busy || restoring)
+  const readyForApproval = review?.status === 'ready_for_approval' && !review.blockers.length && !review.questions.some(q => q.blocking)
 
   useEffect(() => {
     if (!saved) return
@@ -186,7 +190,8 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
   }
   function openRun(id:string,url:string) { setRun({id,url}); setState(null); setReport(null); setPollError(''); setPending(null) }
   async function submit(retry?:string) {
-    if (!review || !consent || (!retry && (dirty || review.status !== 'ready_for_approval')) || busy) return
+    if (!review || !consent || (!retry && (dirty || !readyForApproval)) || locked || submitting.current) return
+    submitting.current = true
     setBusy('submit'); setError('')
     try {
       const a = receipt ?? await api.approve(review)
@@ -201,7 +206,7 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
       if (e instanceof ApiError && e.problem.code === 'retry_already_submitted' && e.problem.run_id)
         openRun(e.problem.run_id,'/api/v1/runs/'+encodeURIComponent(e.problem.run_id))
       else handle(e)
-    } finally { setBusy(null) }
+    } finally { submitting.current = false; setBusy(null) }
   }
   function newCampaign() {
     selection.setPlanId('')
@@ -234,6 +239,9 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
       {origin && !changed && <small>{origin}</small>}
     </label>
   }
+  const selectedProduct = review?.supported_product_choices.find(item => item.choice_id === form.product_choice_id)
+    ?? (review?.resolved_product?.choice_id === form.product_choice_id ? review?.resolved_product : undefined)
+  const approval = {checked:consent, disabled:locked || dirty, onChange:setConsent, onRun:() => submit()}
   const phase = report ? (viewVerdict ? 'Verdict' : 'Arena') : run ? 'Run' : 'Plan'
   const lastPhase = useRef(phase)
   useEffect(() => {
@@ -279,7 +287,12 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
                     </label>)}
                     <button className="intake-secondary" disabled={locked || !confirmed.length} onClick={() => write('save')}>Confirm selected{confirmed.length ? ` (${confirmed.length})` : ''}</button>
                   </section>}
+                  {readyForApproval && <ReviewEvidence review={review} summary={`Review revision ${review.revision} and its assumptions`}/>}
                 </div>}
+              {readyForApproval && dirty && <p className="intake-status">Save your changes before approving this revision.</p>}
+              {readyForApproval && review && <div className="intake-chat-run">
+                <RunApproval {...approval} label={`Approve revision ${review.revision} and its assumptions`} action={busy === 'submit' ? 'Starting…' : receipt ? 'Retry run submission' : 'Run simulation'}/>
+              </div>}
               <form className="intake-composer" onSubmit={e => write('send',e)}>
                 <label className="sr-only" htmlFor="v1-message">{review ? 'Reply to CampaignTwin' : 'Campaign brief'}</label>
                 <textarea rows={2} id="v1-message" ref={composer} maxLength={1000} disabled={locked} value={draftText}
@@ -298,16 +311,15 @@ export default function Workflow({ onOpenDemo }: { onOpenDemo?: () => void }) {
           <form className="intake-form" onSubmit={e => write('save',e)} aria-labelledby="v1-form-title">
             <header className="intake-heading"><h2 id="v1-form-title">Campaign details</h2>{review && <small>Revision {review.revision}</small>}</header>
             <fieldset className="v1-fields intake-form-body" disabled={locked}>
+              <ProductGoods photo={catalogPhoto(selectedProduct)}/>
               <div className="intake-field-grid">{firstKeys.map(field)}</div>
               <h3>Offer</h3><div className="intake-field-grid v1-offer-grid">{offerKeys.map(field)}</div>
               <details className="v1-evidence"><summary>Offer restrictions</summary><div className="intake-field-grid">{restrictionKeys.map(field)}</div></details>
               <button type="submit" className="intake-primary" disabled={locked || (!!review && !dirty)}>{busy === 'save' ? 'Saving…' : review ? 'Save revision' : 'Create review'}</button>
             </fieldset>
             {review && <><ReviewEvidence review={review}/>
-              {review.status === 'ready_for_approval' && !review.blockers.length && !review.questions.some(q => q.blocking) && <section className="v1-approval">
-                <label className="v1-candidate"><input type="checkbox" disabled={locked || dirty} checked={consent} onChange={e => setConsent(e.target.checked)}/>
-                  <span>I approve revision {review.revision} and its assumptions.</span></label>
-                <button type="button" className="intake-primary" disabled={locked || dirty || !consent} onClick={() => submit()}>{busy === 'submit' ? 'Starting…' : receipt ? 'Submit approved run' : 'Approve and start simulation'}</button>
+              {readyForApproval && <section className="v1-approval">
+                <RunApproval {...approval} label={`I approve revision ${review.revision} and its assumptions.`} action={busy === 'submit' ? 'Starting…' : receipt ? 'Submit approved run' : 'Approve and start simulation'}/>
               </section>}</>}
           </form>
         </div>}
