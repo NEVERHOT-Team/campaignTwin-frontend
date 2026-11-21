@@ -49,7 +49,7 @@ function Studio() {
   const query=new URLSearchParams(location.search)
   return <>
     {visited.has('seller') && <div hidden={mode!=='seller'}><Suspense fallback={<p className="studio-loading" role="status">Opening seller planner…</p>}>
-      <SellerWorkflow onOpenArena={()=>navigate('v1')} onOpenDemo={()=>navigate('demo')}/>
+      <SellerWorkflow onOpenV1={()=>navigate('v1')}/>
     </Suspense></div>}
     {visited.has('v1') && <div hidden={mode!=='v1'}><Suspense fallback={<p className="studio-loading" role="status">Opening Arena planner…</p>}>
       <ArenaWorkflow onOpenV2={()=>navigate('seller')} onOpenDemo={play=>navigate('demo',play)}/>

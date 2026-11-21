@@ -32,6 +32,16 @@ function activeQuestion(review:Review) {
   return review.questions.find(question => question.blocking) ?? review.questions[0]
 }
 
+function chatPrompt(review:Review) {
+  const question = activeQuestion(review)
+  if (question && review.candidates.some(candidate => candidate.field === question.field)) {
+    const key = fieldKey(question.field)
+    const label = controls.find(control => control.key === key)?.label ?? humanize(key)
+    return 'Review the suggested value for ' + label + ' below, or send a correction.'
+  }
+  return question?.prompt ?? review.blockers[0]?.message
+}
+
 export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?:boolean) => void; onOpenV2?: () => void }) {
   const [api] = useState(() => createV1Client(import.meta.env.VITE_API_BASE_URL))
   const sessionKey = 'campaigntwin-v1-session/' + api.origin
@@ -183,10 +193,11 @@ export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?
       const conversational = kind === 'send' || (!review && Boolean(text))
       const nextQuestion = activeQuestion(next)
       const waitingOnSameField = conversational && question && question.field === nextQuestion?.field
+      const previousPrompt = review && chatPrompt(review)
       if (conversational) {
         setTurns(t => [
           ...t,
-          ...(question && !waitingOnSameField ? [{speaker:'assistant' as const,text:question.prompt}] : []),
+          ...(previousPrompt && (!waitingOnSameField || previousPrompt !== chatPrompt(next)) ? [{speaker:'assistant' as const,text:previousPrompt}] : []),
           {speaker:'user' as const,text},
         ])
       }
@@ -247,7 +258,7 @@ export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?
   const promptControl = controls.find(c => c.key === (questionKey === 'offer' ? 'offer.kind' : questionKey))
   const hasQuestionSuggestion = !!review?.candidates.some(c => c.field === question?.field)
   const suggestions = review?.candidates ?? []
-  const canConfirmAll = suggestions.length > 1 && new Set(suggestions.map(c => c.field)).size === suggestions.length
+  const canConfirmAll = suggestions.length > 0 && new Set(suggestions.map(c => c.field)).size === suggestions.length
     && suggestions.every(c => !(fieldKey(c.field).split('.')[0] in edits))
   function focusPromptField() {
     if (!promptControl) return
@@ -292,36 +303,35 @@ export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?
   }, [phase])
   return <>
     <a className="skip-link" href="#planner-workspace">Skip to workspace</a>
-    <WorkspaceHeader status="API workspace" action={<>
+    <WorkspaceHeader status="API workspace" action={<div className="planner-actions">
+      {(review || run) && <button type="button" disabled={locked} onClick={newCampaign}>New campaign</button>}
       {onOpenDemo && <button type="button" onClick={()=>onOpenDemo()}>Demo arena</button>}
       {onOpenV2 && <button type="button" onClick={onOpenV2}>Debug v2</button>}
-    </>}><span className="v1-current-step">{phase}</span></WorkspaceHeader>
+    </div>}><span className="v1-current-step">{phase}</span></WorkspaceHeader>
     <main className="workspace v1-workspace" id="planner-workspace">
       {restoring ? <p className="v1-loading" role="status">Reopening campaign…</p>
         : failedRestore ? <section className="v1-loading"><h1>Reopen campaign</h1><p role="alert">{error}</p><button className="intake-primary" onClick={() => setRestoreAttempt(n => n+1)}>Try again</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></section>
         : report && !viewVerdict ? <LiveArena report={report} review={review} selection={selection} onOpenDemo={onOpenDemo && (()=>onOpenDemo(true))} onVerdict={() => setViewVerdict(true)}/>
-        : report ? <><RunReport report={report} selection={selection}/><div className="v1-verdict-actions"><button className="intake-secondary" onClick={() => setViewVerdict(false)}>Back to arena</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></div></>
+        : report ? <><RunReport report={report} selection={selection}/><div className="v1-verdict-actions"><button className="intake-secondary" onClick={() => setViewVerdict(false)}>Back to arena</button></div></>
         : run ? <section className="v1-loading">
           <h1>{state?.status === 'error' ? 'Run failed' : state?.status === 'done' ? 'Loading simulation results…' : 'Rehearsal in progress'}</h1>
           <p>{state?.failure?.message ?? (state ? `${humanize(state.status)} · ${Math.round(state.progress*100)}%` : 'Waiting for run status…')}</p>
           {state && <progress value={state.progress} max="1"/>}
           {pollError && <><p role="alert">{pollError}</p><button className="intake-secondary" onClick={() => { setPollError(''); setAttempt(x => x+1) }}>Check status again</button></>}
           {state?.failure?.retryable && <button className="intake-primary" disabled={Boolean(busy)} onClick={() => submit(run.id)}>Retry simulation</button>}
-          {state?.status === 'error' && <button className="intake-link" disabled={Boolean(busy)} onClick={newCampaign}>Start a new campaign</button>}
           {error && <p role="alert">{error}</p>}
         </section> :
         <div className="intake-workbench v1-intake">
           <section className="intake-chat" aria-labelledby="v1-chat-title">
-            <header className="intake-heading"><h1 id="v1-chat-title">Campaign chat</h1>{review && <button type="button" className="intake-link" disabled={locked} onClick={newCampaign}>New campaign</button>}</header>
+            <header className="intake-heading"><h1 id="v1-chat-title">Campaign chat</h1></header>
             <div className={'intake-chat-main'+(review ? ' has-conversation' : '')}>
               {!review ? <div className="intake-empty"><h2>What are you planning?</h2><p>Start with a brief or the campaign details you know.</p></div>
                 : <div className="intake-transcript v1-transcript" ref={transcript} aria-label="Campaign conversation">
                   {turns.map((turn,i) => <div key={i} className="intake-turn" data-speaker={turn.speaker}><small>{turn.speaker === 'user' ? 'You' : 'CampaignTwin'}</small><p>{turn.text}</p></div>)}
                   <div className="intake-turn" data-speaker="assistant" aria-live="polite"><small>CampaignTwin · Revision {review.revision}</small><p>{readyForApproval ? 'Your campaign is ready for approval.'
-                    : hasQuestionSuggestion ? 'Confirm the suggested value below or enter the correct value in Campaign details.'
-                    : question?.prompt ?? review.blockers[0]?.message}</p>
+                    : chatPrompt(review)}</p>
                     {repeatedField === question?.field && repeatedField && !hasQuestionSuggestion && <p>This field still needs a value. You can enter it directly in Campaign details.</p>}
-                    {!readyForApproval && promptControl && (!hasQuestionSuggestion || repeatedField) && <button type="button" className="intake-link" disabled={locked} onClick={focusPromptField}>Edit {promptControl.label}</button>}</div>
+                    {!readyForApproval && promptControl && <button type="button" className="intake-link" disabled={locked} onClick={focusPromptField}>Edit {promptControl.label}</button>}</div>
                   {review.questions.length > 1 && <details className="v1-evidence v1-questions"><summary>{review.questions.length-1} more {review.questions.length === 2 ? 'question' : 'questions'}</summary>
                     <ul>{review.questions.filter(item => item !== question).map((q,i) => <li key={q.field+i}>{q.prompt}</li>)}</ul></details>}
                   {review.candidates.length > 0 && <section className="v1-suggestions" aria-label="Suggested values">
@@ -331,7 +341,7 @@ export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?
                     </label>)}
                     <button type="button" className="intake-secondary" disabled={locked || (!confirmed.length && !canConfirmAll)}
                       onClick={() => write('save',undefined,confirmed.length ? confirmed : suggestions.map(c => c.candidate_id))}>
-                      {confirmed.length ? `Confirm selected (${confirmed.length})` : canConfirmAll ? 'Confirm all suggested values' : 'Confirm selected'}
+                      {confirmed.length ? `Confirm selected (${confirmed.length})` : canConfirmAll ? (suggestions.length === 1 ? 'Confirm suggested value' : 'Confirm all suggested values') : 'Confirm selected'}
                     </button>
                   </section>}
                   {readyForApproval && <ReviewEvidence review={review} summary={`Review revision ${review.revision} and its assumptions`}/>}
@@ -352,7 +362,7 @@ export default function Workflow({ onOpenDemo, onOpenV2 }: { onOpenDemo?: (play?
                     setDraftText(product ? `Rehearse the selected pack on ${product.channel} using the offer and budget in the form.` : demoBrief)
                     composer.current?.focus()
                   }}>Use sample brief</button>
-                    : <small>{review.agent.status === 'degraded' ? 'Local interpretation · assistant unavailable' : 'Enter to send'}</small>}
+                    : <small>{review.agent.status === 'degraded' ? 'Using local chat interpretation' : 'Enter to send'}</small>}
                   <button type="submit" className="intake-send" disabled={locked || !draftText.trim()}>{busy === 'send' ? 'Sending…' : 'Send'}</button>
                 </div>
               </form>

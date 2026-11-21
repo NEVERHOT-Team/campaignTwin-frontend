@@ -13,7 +13,7 @@ import { useSellerRun, type SavedRun } from './seller-runs'
 import '../intake.css'
 import './seller-workflow.css'
 
-type Props = { onOpenArena:()=>void; onOpenDemo:()=>void }
+type Props = { onOpenV1:()=>void }
 type Message = {speaker:'assistant'|'user'; text:string}
 type Pending = {submissionId:string; reviewId:string; revision:number; approvalId?:string; retryOf?:string}
 type Saved = {reviewId:string|null; mode:'guided'|'form'; turns:Message[]; history:SavedRun[]; selected:string|null; pending:Pending|null}
@@ -37,7 +37,7 @@ function message(error:unknown) {
   return error instanceof Error ? error.message : 'The request could not be completed.'
 }
 
-export default function SellerWorkflow({onOpenArena,onOpenDemo}:Props) {
+export default function SellerWorkflow({onOpenV1}:Props) {
   const [api]=useState(()=>createV2Client(import.meta.env.VITE_API_BASE_URL))
   const storageKey='campaigntwin-seller-v2/'+api.origin
   const [initial]=useState(()=>restore(storageKey))
@@ -262,7 +262,10 @@ export default function SellerWorkflow({onOpenArena,onOpenDemo}:Props) {
   const submitChat=(e:FormEvent)=>{e.preventDefault();void write('send')}
   return <>
     <a className="skip-link" href="#seller-workspace">Skip to workspace</a>
-    <WorkspaceHeader status="Seller API · v2" action={<><button type="button" onClick={onOpenArena}>Arena planner</button><button type="button" onClick={onOpenDemo}>Demo arena</button></>}>
+    <WorkspaceHeader status="Seller API · v2" action={<div className="planner-actions">
+      {(review || selected || saved.reviewId) && !restoreFailed && <button type="button" disabled={locked} onClick={newCampaign}>New campaign</button>}
+      <button type="button" onClick={onOpenV1}>Back to v1</button>
+    </div>}>
       <span className="seller-phase">{resultScreen?'Verdict':'Plan'}</span>
     </WorkspaceHeader>
     <main className="workspace seller-workspace" id="seller-workspace">
@@ -280,7 +283,7 @@ export default function SellerWorkflow({onOpenArena,onOpenDemo}:Props) {
         </section>}
       </> : <div className="intake-workbench seller-intake">
         <section className="intake-chat" aria-labelledby="seller-chat-title">
-          <header className="intake-heading"><h1 id="seller-chat-title">Campaign chat</h1>{session && <button className="intake-link" disabled={locked} onClick={newCampaign}>New campaign</button>}</header>
+          <header className="intake-heading"><h1 id="seller-chat-title">Campaign chat</h1></header>
           <div className={'intake-chat-main'+(session?' has-conversation':'')}>
             {session ? <div className="intake-transcript seller-transcript" role="log" aria-label="Seller interview" ref={transcript}>
               {saved.turns.map((t,i)=><p className="intake-turn" data-speaker={t.speaker} key={i}><span className="sr-only">{t.speaker==='user'?'You':'CampaignTwin'} </span>{t.text}</p>)}
@@ -303,8 +306,8 @@ export default function SellerWorkflow({onOpenArena,onOpenDemo}:Props) {
                 onKeyDown={e=>{if (e.key==='Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode!==229){e.preventDefault();e.currentTarget.form?.requestSubmit()}}}/>
               <div className="intake-composer-actions"><span>{session?'Seller interview':''}</span><button type="submit" className="intake-send" disabled={locked || restoreFailed || !draft.trim() || (!!session && dirty)}>{busy==='send'?'Sending…':'Send'}</button></div>
             </form>
-            {unavailable && <div className="seller-feedback"><p role="alert">The seller API is unavailable. You can continue in the connected Arena planner. For seller runs, the backend must serve /api/v2 using api.v2.app:app.</p>
-              <div className="seller-recovery"><button type="button" className="intake-secondary" onClick={onOpenArena}>Open Arena planner</button><button type="button" className="intake-link" onClick={()=>setConnectAttempt(n=>n+1)}>Check connection</button></div></div>}
+            {unavailable && <div className="seller-feedback"><p role="alert">The v2 API is unavailable. You can continue planning in v1.</p>
+              <div className="seller-recovery"><button type="button" className="intake-secondary" onClick={onOpenV1}>Open v1 planner</button><button type="button" className="intake-link" onClick={()=>setConnectAttempt(n=>n+1)}>Check connection</button></div></div>}
             {issue && <p className="seller-feedback" role="alert">{issue}</p>}
             {notice && <p className="seller-feedback" role="status">{notice}</p>}
             {restoreFailed && <div><button className="intake-secondary" onClick={()=>setRestoreAttempt(n=>n+1)}>Reopen campaign</button><button className="intake-link" onClick={newCampaign}>Start a new campaign</button></div>}
