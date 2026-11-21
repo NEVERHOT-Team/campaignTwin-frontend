@@ -16,6 +16,8 @@ The requested visual reference is ChatGPT’s dark workspace. The design uses a 
 
 The dashboard puts the decision and comparison first. The charts below them share a scenario filter, consistent units and an exact-value view. The line chart uses recorded replay days. The bar charts compare values across plans. [IBM Carbon dashboard guidance](https://github.com/carbon-design-system/carbon-website/blob/5e9cd1da43c32d3d3b991dc947b427f674da61a8/src/pages/data-visualization/dashboards/index.mdx) · [Financial Times Visual Vocabulary](https://github.com/ft-interactive/chart-doctor/tree/befb9cba21849432a4029d0cfdda938819ae733f/visual-vocabulary)
 
+Arena and Verdict use cyan for the original plan, rose for alternatives, and a dotted silver line for no campaign. Goal attainment is green and loss risk is coral. Profit and subsidy charts share a violet percentile scale from P10 to P90. The chart legends repeat the line dashes or bar textures, and each series has a text label.
+
 The generated CT monogram appears in the workspace header and browser tab. Illustrative product images accompany the known demo chip category and resolved tissue listing. The saved campaign and catalog supply the names and pack details.
 
 ## Browser checks

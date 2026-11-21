@@ -162,8 +162,9 @@
 .ra-trend-header {justify-content:space-between;gap:8px;margin-bottom:7px}
 .ra-key {gap:9px;font-size:11px;color:#bcbcbc}
 .ra-key span {display:inline-flex;align-items:center;gap:4px}
-.ra-key span::before {content:'';width:16px;height:0;border-top:3px solid #f4f4f4}
-.ra-key span+span::before {border-top:2px dashed #999}
+.ra-key {flex-wrap:wrap}
+.ra-key svg {flex:none}
+.ra-trend-header {flex-wrap:wrap}
 .ra-trend .chart {height:142px;min-height:142px;overflow:clip}
 .ra-chart-loading {min-height:142px}
 .ra-more {margin-top:15px}

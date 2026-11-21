@@ -1,6 +1,7 @@
 import type { Report as ReplayReport } from './model'
 import type { Report as RunReport } from './v1/client'
 import type { VerdictChartPanel } from './VerdictCharts'
+import { baselineSeries, preferenceSeries } from './chart-series'
 import { attainmentRate, baht } from './verdict-values'
 
 function percentValue(value: number | null | undefined) {
@@ -17,15 +18,15 @@ export function replayInsights(report: ReplayReport, scenarioId: string): Verdic
   const plans = report.plans.map((plan, index) => {
     const result = inScenario.find(row => row.plan_id === plan.plan_id)
     const days = new Map(result?.daily.filter(frame => Number.isSafeInteger(frame.day)).map(frame => [frame.day, frame]))
-    return { key:'plan'+index, label:plan.label, role:plan.role, result, days }
+    return { key:'plan'+index, label:plan.label, role:plan.role, style:preferenceSeries(plan,report.plans), result, days }
   })
   const campaigns = [...plans.filter(plan => plan.role === 'original'), ...plans.filter(plan => plan.role === 'alternative')]
   const reference = plans.find(plan => plan.role === 'baseline')
   const baselineKey = reference?.key ?? 'baseline'
-  const series = campaigns.map(({key,label}) => ({key,label}))
+  const series = campaigns.map(({key,style}) => ({...style,key}))
   const days = [...new Set(plans.flatMap(plan => [...plan.days.keys()]))].sort((a,b) => a-b)
   const hasPairedShare = campaigns.some(plan => plan.result?.daily.some(frame => percentValue(frame.baseline_share_pct) != null))
-  if (reference || hasPairedShare) series.push({ key:baselineKey, label:reference?.label ?? 'No campaign' })
+  if (reference || hasPairedShare) series.push({ ...baselineSeries, key:baselineKey, label:reference?.label ?? baselineSeries.label })
 
   const rows: VerdictChartPanel['rows'] = []
   for (let i = 0; i < days.length; i++) {
@@ -61,7 +62,7 @@ export function replayInsights(report: ReplayReport, scenarioId: string): Verdic
     {
       id:'goal-attainment', kind:'bar', title:'Chance of reaching the profit goal',
       description:scenario+' · Share of valid paired samples reaching '+baht.format(report.goal_thb)+' in incremental profit.',
-      xLabel:'Plan', yLabel:'Share of samples', unit:'percent', domain:[0,100], series:[{key:'target',label:'Reached goal'}],
+      xLabel:'Plan', yLabel:'Share of samples', unit:'percent', domain:[0,100], series:[{key:'target',tone:'target',label:'Reached goal'}],
       rows:targets.map(plan => ({label:plan.label, values:{target:fractionToPercent(attainmentRate(plan.result?.goal_attainment))}})),
       emptyMessage:'No valid paired samples were returned for this goal.',
     },
@@ -98,14 +99,14 @@ export function evaluationInsights(plans:ScopedPlan[], scopeLabel:string): Verdi
       id:'outcome-probabilities', kind:'bar', title:'Target and loss probabilities',
       description:scopeLabel+' · Share of paired seeds meeting the approved target or producing an incremental loss.',
       xLabel:'Evaluated plan', yLabel:'Probability', unit:'percent', domain:[0,100],
-      series:[{key:'target',label:'Met target'},{key:'loss',label:'Loss'}], rows:probabilityRows,
+      series:[{key:'target',tone:'target',label:'Met target'},{key:'loss',tone:'loss',label:'Loss'}], rows:probabilityRows,
       emptyMessage:'No target or loss probabilities were returned for this scenario.',
     },
     {
       id:'subsidy-leakage', kind:'bar', title:'Subsidy leakage by plan',
       description:scopeLabel+' · Share of subsidy spent on purchases that would also occur without the campaign.',
       xLabel:'Evaluated plan', yLabel:'Subsidy share', unit:'percent', domain:[0,100],
-      series:[{key:'p10',label:'P10'},{key:'p50',label:'Median'},{key:'p90',label:'P90'}], rows:leakageRows,
+      series:[{key:'p10',tone:'p10',label:'P10'},{key:'p50',tone:'p50',label:'Median'},{key:'p90',tone:'p90',label:'P90'}], rows:leakageRows,
       emptyMessage:'No subsidy leakage estimates were returned for this scenario.',
     },
   ]

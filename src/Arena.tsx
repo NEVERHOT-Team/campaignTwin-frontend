@@ -1,4 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { baselineSeries, preferenceSeries, seriesColor, type ChartSeries } from './chart-series'
 import { ArenaViews, IsometricMarket } from './ArenaViews'
 import { WorkflowMap } from './WorkflowMap'
 import { replayWorkflowEvidence } from './replay-workflow'
@@ -84,6 +85,7 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
   const to = days?.at(-1)?.day ?? report.window.follow_up_end_day
   const phase = day < report.window.start_day ? 'Pre-launch' : day <= report.window.end_day ? 'Campaign active' : 'Follow-up'
   const choice = report.plans.find(p => p.plan_id === planId)
+  const trendPlan: ChartSeries = choice ? preferenceSeries(choice,report.plans) : {key:planId,label:'Selected plan',tone:'unspecified'}
   const availablePlans = report.plans.filter(p => p.role !== 'baseline')
   const scenarioInfo = report.scenarios.find(s => s.scenario_id === scenario)
   const moves = (result?.competitor_actions ?? []).filter(m => m.day <= day).sort((a,b) => b.day - a.day)
@@ -284,9 +286,11 @@ export function Arena({ report, result, baseline, scenario, changeScenario, plan
       </aside>
 
       <section className="ra-trend">
-        <div className="ra-trend-header"><h2>Would choose your brand</h2><div className="ra-key" aria-label="Chart legend"><span>Plan</span><span>No campaign</span></div></div>
+        <div className="ra-trend-header"><h2>Would choose your brand</h2><div className="ra-key" aria-label="Chart legend">{[trendPlan, baselineSeries].map(item => <span key={item.key}>
+          <svg width="21" height="8" aria-hidden="true"><line x1="0" x2="21" y1="4" y2="4" stroke={seriesColor(item)} strokeDasharray={item.dash} strokeWidth="2.5"/></svg>{item.label}
+        </span>)}</div></div>
         {series?.some(d => d.brand_share_pct != null) ? <TrendBoundary days={series}><Suspense fallback={<p className="ra-chart-loading" role="status">Loading preference trend…</p>}>
-          <TrendChart day={day} data={series} window={report.window}/>
+          <TrendChart plan={trendPlan} day={day} data={series} window={report.window}/>
         </Suspense></TrendBoundary> : <p>Would-be brand choice by day is unavailable for this scenario.</p>}
       </section>
     </div>

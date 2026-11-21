@@ -241,3 +241,29 @@ test('live insight charts distinguish missing estimates, measured zero and uneva
   assert.deepEqual(odds.rows, [{ label: 'Original', values: { loss: 0, target: null } }])
   assert.deepEqual(leakage.rows, [{ label: 'Original', values: { p10: 0, p50: 25, p90: 75 } }])
 })
+
+test('chart series retain their visual meaning across plan order, scenarios and report modes', async () => {
+  const { replayInsights, evaluationInsights } = await vite.ssrLoadModule('/src/verdict-insights.ts')
+  const { preferenceSeries, seriesColor } = await vite.ssrLoadModule('/src/chart-series.ts')
+  const plans = [
+    {plan_id:'b', label:'Second offer', role:'alternative'},
+    {plan_id:'c', label:'No campaign', role:'baseline'},
+    {plan_id:'a', label:'First offer', role:'alternative'},
+    {plan_id:'o', label:'Original', role:'original'},
+  ]
+  const report = {plans,results:[],scenarios:[],window:{start_day:1,end_day:2},goal_thb:100}
+  const [preference, goal] = replayInsights(report,'S1')
+  const [reordered] = replayInsights({...report,plans:[...plans].reverse()},'S2')
+  for (const plan of plans) {
+    const a = preference.series.find(item => item.label === plan.label)
+    const b = reordered.series.find(item => item.label === plan.label)
+    const arena = preferenceSeries(plan,plans)
+    assert.equal(seriesColor(a),seriesColor(b))
+    assert.equal(seriesColor(a),seriesColor(arena))
+    assert.equal(a.dash,b.dash)
+  }
+  const [odds, leakage] = evaluationInsights([], 'S1')
+  assert.equal(seriesColor(goal.series[0]),seriesColor(odds.series[0]))
+  const colors = [...preference.series,...odds.series,...leakage.series].map(seriesColor)
+  assert.equal(new Set(colors).size,colors.length)
+})

@@ -273,8 +273,8 @@
 .vr-view-switch [aria-pressed="true"] { background: #393939; color: #fff; }
 .vr-plot-key { display: flex; flex-wrap: wrap; gap: 12px 19px; margin: 19px 0 6px; color: #bdbdbd; font-size: 12px; }
 .vr-plot-key span { display: inline-flex; align-items: center; gap: 6px; }
-.vr-key-interval { width: 19px; height: 3px; background: #9b9b9b; }
-.vr-key-median { height: 8px; width: 8px; background: #f3f3f3; border-radius: 50%; }
+.vr-key-interval { width: 19px; height: 3px; background: linear-gradient(90deg,var(--chart-p10),var(--chart-p90)); }
+.vr-key-median { height: 8px; width: 8px; background: var(--chart-p50); border-radius: 50%; }
 .vr-plot { list-style: none; margin: 0; padding: 0; }
 .vr-plot-row, .vr-axis { display: grid; grid-template-columns: var(--chart-columns); align-items: center; column-gap: 18px; }
 .vr-plot-row { min-height: 47px; border-bottom: 1px solid #292929; }
@@ -284,11 +284,11 @@
 .vr-gridline { position: absolute; top: 0; bottom: -1px; width: 1px; background: #2c2c2c; }
 .vr-gridline[data-zero] { background: none; border-left: 1px dashed #737373; }
 .vr-interval, .vr-point { position: absolute; top: 50%; transition: left .2s ease, width .2s ease; }
-.vr-interval { height: 4px; border-radius: 2px; background: #a1a1a1; transform: translateY(-50%); }
-.vr-interval::before, .vr-interval::after { content: ''; position: absolute; top: 50%; width: 1px; height: 10px; background: #b2b2b2; transform: translateY(-50%); }
-.vr-interval::before { left: 0; }
-.vr-interval::after { right: 0; }
-.vr-point { width: 10px; height: 10px; border-radius: 50%; background: #f4f4f4; box-shadow: 0 0 0 2px #111; transform: translate(-50%,-50%); }
+.vr-interval { height: 4px; border-radius: 2px; background: linear-gradient(90deg,var(--chart-p10),var(--chart-p90)); transform: translateY(-50%); }
+.vr-interval::before, .vr-interval::after { content: ''; position: absolute; top: 50%; width: 1px; height: 10px; transform: translateY(-50%); }
+.vr-interval::before { left: 0; background: var(--chart-p10); }
+.vr-interval::after { right: 0; background: var(--chart-p90); }
+.vr-point { width: 10px; height: 10px; border-radius: 50%; background: var(--chart-p50); box-shadow: 0 0 0 2px #111; transform: translate(-50%,-50%); }
 .vr-median-value, .vr-no-value { text-align: right; overflow-wrap: anywhere; }
 .vr-median-value { font-size: clamp(16px, 1.55vw, 21px); font-weight: 550; letter-spacing: -.048em; line-height: 1.2; }
 .vr-no-value, .vr-axis { color: #b3b3b3; font-size: 12px; }

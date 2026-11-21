@@ -11,11 +11,9 @@
 .vc-legend {display:flex;align-items:center;flex-wrap:wrap;gap:5px 15px;margin:16px 0 10px;padding:0;color:#d2d2d2;font-size:12px;font-weight:480;line-height:1.45}
 .vc-legend>span {display:inline-flex;align-items:center;gap:5px}
 .vc-key,.vc-window-key {display:block;flex:none}
-.vc-key-line {width:18px;height:0;border-top:2px solid currentColor}
-.vc-key-line[data-style="1"],.vc-key-line[data-style="3"] {border-top-style:dashed}
-.vc-key-line[data-style="2"] {border-top-style:dotted}
 .vc-key-bar,.vc-window-key {width:12px;height:9px;background:currentColor;border-radius:2px}
-.vc-key-bar[data-style="1"],.vc-key-bar[data-style="3"] {background:repeating-linear-gradient(135deg,currentColor,currentColor 3px,#555 3px,#555 4px)}
+.vc-key-bar[data-texture="stripes"] {background:repeating-linear-gradient(135deg,currentColor,currentColor 3px,#241c31 3px,#241c31 4px)}
+.vc-key-bar[data-texture="dots"] {background:radial-gradient(circle,#241c31 1px,transparent 1.2px) 0 0 / 6px 6px,currentColor}
 .vc-window-key {border:1px solid #828282;background:#2b2b2b}
 .vc-axis-label {font-size:11px;color:#bcbcbc;line-height:1.4;letter-spacing:.005em}
 .vc-horizontal {margin-top:3px;text-align:center}
@@ -25,7 +23,7 @@
 .vc-tooltip strong {font-size:12px;font-weight:600}
 .campaign-verdict .vc-tooltip dl {display:grid;gap:2px;margin-top:4px}
 .vc-tooltip dl>div {display:flex;align-items:baseline;justify-content:space-between;gap:12px}
-.vc-tooltip dt {color:#ccc}
+.vc-tooltip dt {display:flex;align-items:center;gap:6px;color:#ddd}
 .vc-tooltip dd {font-weight:550}
 .campaign-verdict .vc-note,.campaign-verdict .vc-empty {margin-top:10px;color:#bbb;font-size:12px;line-height:1.45}
 .campaign-verdict .vc-empty {padding-block:16px}

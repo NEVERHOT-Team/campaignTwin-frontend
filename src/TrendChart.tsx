@@ -1,19 +1,15 @@
 import { CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { DotProps } from 'recharts'
+import { baselineSeries, seriesColor, type ChartSeries } from './chart-series'
 import type { Day, Report } from './model'
 
 const axis = { fontSize: 11, fill: '#a6a6a6' }
-const dashed = '5 4'
+
 function dayLine({x1, y1, y2}: {x1:number; y1:number; y2:number}) {
   return <line className="ra-chart-cursor" x1={0} x2={0} y1={y1} y2={y2} stroke="#888" strokeDasharray="2 4"
     style={{transform:`translateX(${x1}px)`}}/>
 }
-function dayPoint({cx, cy}: DotProps) {
-  return <circle className="ra-chart-cursor" r={3.5} fill="#f4f4f4" stroke="#171717" strokeWidth={1.5}
-    style={{transform:`translate(${cx}px, ${cy}px)`}}/>
-}
-
-export default function TrendChart({ data, window, day }: { data: Day[]; window: Report['window']; day: number }) {
+export default function TrendChart({ data, window, day, plan }: { data: Day[]; window: Report['window']; day: number; plan: ChartSeries }) {
+  const color = seriesColor(plan)
   const point = data.find(entry => entry.day === day)
   return <div className="chart" role="img" aria-label="Share of simulated shoppers who would choose your brand by day, with the active campaign period shaded">
     <ResponsiveContainer width="100%" height="100%">
@@ -25,9 +21,10 @@ export default function TrendChart({ data, window, day }: { data: Day[]; window:
         <ReferenceLine x={day} shape={dayLine}/>
         <Tooltip contentStyle={{ background:'#202020', border:'1px solid #454545', borderRadius:6, color:'#f0f0f0' }}
           labelFormatter={value => `Day ${value}`} formatter={value => `${value}%`}/>
-        <Line type="monotone" name="No campaign" dataKey="baseline_share_pct" stroke="#999" strokeDasharray={dashed} dot={false} isAnimationActive={false}/>
-        <Line type="monotone" name="Plan" dataKey="brand_share_pct" stroke="#f4f4f4" strokeWidth={2.5} dot={false} isAnimationActive={false}/>
-        {point?.brand_share_pct != null && <ReferenceDot x={day} y={point.brand_share_pct} shape={dayPoint}/>}
+        <Line type="monotone" name="No campaign" dataKey="baseline_share_pct" stroke={seriesColor(baselineSeries)} strokeDasharray={baselineSeries.dash} dot={false} isAnimationActive={false}/>
+        <Line type="monotone" name={plan.label} dataKey="brand_share_pct" stroke={color} strokeDasharray={plan.dash} strokeWidth={2.5} dot={false} isAnimationActive={false}/>
+        {point?.brand_share_pct != null && <ReferenceDot x={day} y={point.brand_share_pct} shape={({cx,cy}) => <circle className="ra-chart-cursor" r={3.5} fill={color} stroke="#171717" strokeWidth={1.5}
+          style={{transform:`translate(${cx}px, ${cy}px)`}}/>}/>}
       </ComposedChart>
     </ResponsiveContainer>
   </div>
