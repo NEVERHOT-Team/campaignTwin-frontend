@@ -267,3 +267,32 @@ test('chart series retain their visual meaning across plan order, scenarios and 
   const colors = [...preference.series,...odds.series,...leakage.series].map(seriesColor)
   assert.equal(new Set(colors).size,colors.length)
 })
+
+test('strategy comparisons use only the matching candidate and the selected scenario', async () => {
+  const { replayStrategyDifference } = await vite.ssrLoadModule('/src/replay-strategy-difference.ts')
+  const original = report.plans.find(p => p.role === 'original')
+  const alternative = report.plans.find(p => p.plan_id === report.candidate.plan.plan_id)
+  const compared = replayStrategyDifference(report, 'S1', original, alternative)
+  assert.ok(compared.changes.some(change => change.reason))
+  assert.ok(compared.outcomes.some(outcome => outcome.difference))
+
+  const missing = replayStrategyDifference(report, 'unreported', original, {...alternative, plan_id:'another-offer'})
+  assert.ok(missing.changes.every(change => !change.reason))
+  assert.ok(missing.outcomes.every(outcome => !outcome.difference))
+})
+
+test('live strategy comparisons keep losses, unpaired scenarios and approval boundaries distinct', async () => {
+  const { liveStrategyDifference, labelsForReport } = await vite.ssrLoadModule('/src/v1/strategy-comparison.ts')
+  const input = {plan_id:'a', paired_baseline_id:'control', approval_id:'approval', review_id:'review', revision:2}
+  function scope(scenario, profit) {
+    return {scenario, metrics:[{metric:'incremental_profit', status:'available', unit:'THB', value:{p50:profit}}]}
+  }
+  const original = {role:'original',input,scenario_results:[scope('S1',-100),scope('S4',5)]}
+  const other = {role:'conservative',input:{...input,plan_id:'b',parent_plan_id:'a'},scenario_results:[scope('S1',-25)]}
+  const labels = labelsForReport({data_versions:{evaluation_policy:'arena-tissue-v1'},plan_results:[original,other]})
+  assert.equal(labels.conservative,'Strategist plan')
+  const loss = liveStrategyDifference(original,other,'S1',labels).outcomes.find(o=>o.label==='Median incremental profit')
+  assert.match(loss.difference,/75 smaller median loss/)
+  assert.ok(liveStrategyDifference(original,other,'S4',labels).outcomes.every(o=>o.difference==null))
+  assert.equal(liveStrategyDifference(original,{...other,input:{...other.input,approval_id:'previous'}},'S1',labels),undefined)
+})

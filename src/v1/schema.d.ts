@@ -730,7 +730,7 @@ export interface components {
             reason_code: "passed" | "target_missed" | "guardrail_failed" | "missing_decision_evidence";
             explanation: components["schemas"]["Text"];
         } & (unknown & unknown & unknown);
-        /** @description Frozen effective input for one evaluated plan under the synthetic S1 policy. */
+        /** @description Frozen effective input for one evaluated plan under the pinned evaluation policy (synthetic S1 or the arena S1-S4). */
         PlanInput: {
             plan_id: components["schemas"]["Text"];
             /** @enum {unknown} */
@@ -758,7 +758,8 @@ export interface components {
             target_segment_ids: components["schemas"]["Text"][];
             evaluation: components["schemas"]["EvaluationPlan"];
             seeds: number[];
-            contingency_rules: unknown[];
+            /** @description Weekly if-then rules the plan applies in the adaptive arena. Empty for synthetic runs. */
+            contingency_rules: components["schemas"]["Text"][];
         };
         RunInput: {
             run_id: components["schemas"]["Uuid"];

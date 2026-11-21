@@ -7,6 +7,7 @@ import { ProfitValue } from '../ProfitValue'
 import { ArenaVerdictPrompt } from '../ArenaVerdictPrompt'
 import { ProductGoods, catalogPhoto } from '../ProductGoods'
 import { humanize } from './planner'
+import { frozenOffer, labelsForReport } from './strategy-comparison'
 import type { Report, Review } from './client'
 import { resolveRunSelection, type RunSelection } from './run-selection'
 import '../arena-page.css'
@@ -17,7 +18,6 @@ type Scene = Report['scenario_results'][number]
 type PlanResult = NonNullable<Report['plan_results']>[number]
 type Props = { report: Report; review?: Review | null; selection: RunSelection; onVerdict: () => void; onOpenDemo?: () => void }
 
-const planLabels = { original: 'Your plan', conservative: 'Smaller discount', baseline: 'No campaign' }
 const numbers = new Intl.NumberFormat('en', { maximumFractionDigits: 2 })
 const baht = new Intl.NumberFormat('en-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 0, maximumFractionDigits: 2 })
 const percentage = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 2 })
@@ -61,10 +61,7 @@ function IllustratedMarket() {
   </div>
 }
 function offerText(offer: PlanResult['input']['offer'] | undefined) {
-  if (offer === null) return 'No offer'
-  if (offer?.discount.value == null || !offer.discount.unit) return 'Unresolved'
-  const amount = offer.discount.unit === 'pct' ? numbers.format(offer.discount.value) + '%' : baht.format(offer.discount.value)
-  return amount + (offer.discount.kind === 'voucher' ? ' voucher' : ' off')
+  return offer === null ? 'No offer' : frozenOffer(offer) ?? 'Unresolved'
 }
 
 function stageFacts(rows: [string, string | undefined][]) {
@@ -72,6 +69,7 @@ function stageFacts(rows: [string, string | undefined][]) {
 }
 
 function liveWorkflow(report: Report, review: Review | undefined, plan: PlanResult | undefined, scene: Scene | undefined, comparisons: PlanResult[], households: number | undefined): WorkflowEvidence {
+  const planLabels = labelsForReport(report)
   const input = plan?.input
   const selected = plan ? planLabels[plan.role] : 'Reported campaign'
   const original = report.plan_results?.find(p => p.role === 'original')
@@ -175,6 +173,7 @@ function liveWorkflow(report: Report, review: Review | undefined, plan: PlanResu
 }
 
 export default function LiveArena({ report, review, selection, onVerdict, onOpenDemo }: Props) {
+  const planLabels = labelsForReport(report)
   const [view,setView] = useState<'isometric' | '2d' | 'flow'>('isometric')
   const { plans, plan, results, scene, choosePlan } = resolveRunSelection(report,selection)
   const metric = (id: Metric['metric']) => scene?.metrics.find(m => m.metric === id)

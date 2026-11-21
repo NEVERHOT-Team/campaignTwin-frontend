@@ -5,6 +5,8 @@ import { ProductGoods, categoryPhoto } from './ProductGoods'
 import { ProfitRangeChart } from './ProfitRangeChart'
 import { VerdictInsights } from './VerdictInsights'
 import { replayInsights } from './verdict-insights'
+import { StrategyDifference } from './StrategyDifference'
+import { replayStrategyDifference } from './replay-strategy-difference'
 import { attainmentRate, formatResult, percent, pointsComparison, profitComparison } from './verdict-values'
 import './verdict.css'
 
@@ -120,8 +122,8 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
   const recommendation = report.integrity.status === 'passed' ? report.recommendation : null
   const plans = [...report.plans.filter(plan => plan.role === 'original'), ...report.plans.filter(plan => plan.role === 'alternative')]
   const baseline = report.plans.find(plan => plan.role === 'baseline')
-  const originalId = plans.find(plan => plan.role === 'original')?.plan_id
-  const originalResult = report.results.find(r => r.plan_id === originalId && r.scenario_id === scenario)
+  const original = plans.find(plan => plan.role === 'original')
+  const originalResult = report.results.find(r => r.plan_id === original?.plan_id && r.scenario_id === scenario)
   const recommended = plans.find(plan => plan.plan_id === recommendation?.plan_id)
   const decision = recommended?.label ?? (recommendation?.plan_id === null ? 'Hold the campaign' : 'No recommendation available')
   const resultFor = (planId: string, scenarioId: string) =>
@@ -165,6 +167,9 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
       <header className="verdict-comparison-heading"><h2 id="verdict-comparison">Compare plans</h2>
         {baseline && resultFor(baseline.plan_id, scenario) && <p>{plans.length > 1 ? 'Shared reference' : 'Reference'} · {baseline.label}</p>}
       </header>
+      {original && plans.filter(p=>p.role==='alternative').map(p=>
+        <StrategyDifference key={p.plan_id} {...replayStrategyDifference(report,scenario,original,p)}/>
+      )}
       {plans.length > 0 ? <div className="verdict-plans" data-paired={paired || undefined}>{plans.map((plan, index) =>
         <Fragment key={plan.plan_id}>
           {paired && index === 1 && <span className="verdict-versus" aria-hidden="true">VS</span>}
@@ -198,11 +203,6 @@ export function Verdict({ report, scenario, changeScenario, history, historyStat
             </table>
           </div>
           : <p>Scenario comparison unavailable.</p>}
-        {report.candidate && report.candidate.changes.length > 0 && <Disclosure title="Why the Strategist changed the plan">
-          <dl className="verdict-change-list">{report.candidate.changes.map(change => <div key={change.lever}>
-            <dt>{change.lever}</dt><dd>{change.from} to {change.to}. {change.why}</dd>
-          </div>)}</dl>
-        </Disclosure>}
       </section>
       <section aria-labelledby="verdict-history">
         <h2 id="verdict-history">Historical check</h2>

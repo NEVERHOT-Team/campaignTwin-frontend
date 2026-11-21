@@ -1,6 +1,8 @@
 import { Fragment } from 'react'
 import { baht, count, formatResult, percent, percentagePoints, pointsComparison, profitComparison } from '../verdict-values'
 import { ScenarioChoices } from '../ScenarioChoices'
+import { StrategyDifference } from '../StrategyDifference'
+import { frozenOffer, labelsForReport, liveStrategyDifference, pairedInputs } from './strategy-comparison'
 import { ProductGoods, catalogPhoto } from '../ProductGoods'
 import { ProfitRangeChart, type ProfitRow } from '../ProfitRangeChart'
 import { VerdictInsights } from '../VerdictInsights'
@@ -15,7 +17,6 @@ type Scenario = Report['scenario_results'][number]
 type Metric = Scenario['metrics'][number]
 type Name = Metric['metric']
 type Plan = NonNullable<Report['plan_results']>[number]
-const planLabels = { original:'Your plan', conservative:'Smaller discount', baseline:'No campaign' }
 const quantiles = ['p10','p50','p90'] as const
 const evaluationTime = new Intl.DateTimeFormat('en', { dateStyle:'medium', timeStyle:'short', timeZone:'UTC' })
 const rangeMetrics: { id:Name; label:string }[] = [
@@ -46,12 +47,10 @@ function unavailable(metric:Metric|undefined) {
   return metric.unavailable_reason ? unavailableReasons[metric.unavailable_reason] : 'No estimate available'
 }
 function offerText(plan:Plan) {
-  const discount = plan.input.offer?.discount
-  if (!discount) return plan.role === 'baseline' ? 'No offer' : 'Offer unavailable'
-  if (discount.unit === 'THB' && discount.value != null) {
-    return formatResult(discount.value,'THB') + ' ' + (discount.kind === 'voucher' ? 'voucher' : 'off') + ' · ' + formatResult(plan.discount_pct,'pct') + ' of pack price'
-  }
-  return formatResult(plan.discount_pct,'pct') + ' discount'
+  const offer = frozenOffer(plan.input.offer)
+  if (!offer) return plan.role === 'baseline' ? 'No offer' : 'Offer unavailable'
+  return plan.input.offer?.discount.unit === 'THB' && Number.isFinite(plan.discount_pct)
+    ? offer + ' · ' + formatResult(plan.discount_pct,'pct') + ' of pack price' : offer
 }
 function Probability({ metric, title, reference }: { metric?:Metric; title:string; reference?:Metric }) {
   const value = probability(metric)
@@ -78,15 +77,19 @@ function Gates({ plan, scope }: { plan?:Plan; scope?:Scenario }) {
 
 export function RunReport({ report, selection }: { report:Report; selection:RunSelection }) {
   const { plans, originalPlan, plan, results, scene: activeScope, choosePlan } = resolveRunSelection(report, selection)
+  const planLabels = labelsForReport(report)
   const scenario = activeScope?.scenario
   const getScope = (item: Plan) => item.scenario_results.find(s => s.scenario === scenario)
   const campaigns = [...plans.filter(p => p.role === 'original'), ...plans.filter(p => p.role === 'conservative')]
   const references = plans.filter(p => p.role === 'baseline')
-  const paired = campaigns.length === 2 && campaigns[0].role === 'original' && campaigns[1].role === 'conservative' &&
-    campaigns.every(getScope)
+  const strategies = originalPlan ? campaigns.filter(p => p.role === 'conservative').flatMap(p => {
+    const detail = liveStrategyDifference(originalPlan, p, scenario, planLabels)
+    return detail ? [{ id: p.input.plan_id, detail }] : []
+  }) : []
+  const paired = campaigns.length === 2 && strategies.length === 1 && campaigns.every(getScope)
   const originalScope = report.scenario_results.find(s=>s.scenario === scenario) ?? (originalPlan && getScope(originalPlan))
   const originalMedian = median(findMetric(originalScope,'incremental_profit'))
-  const comparison = plan?.role === 'conservative' ? originalScope : undefined
+  const comparison = plan && originalPlan && pairedInputs(originalPlan, plan) ? originalScope : undefined
   const scopeLabel = scenario ? 'Scenario ' + scenario : 'Scenario unavailable'
   const profitRow = (id:string, label:string, scope?:Scenario): ProfitRow => {
     const metric = findMetric(scope,'incremental_profit')
@@ -99,6 +102,10 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
     : [{ label:planLabels.original, scope:originalScope }], scopeLabel)
   const input = plan?.input
   const policy = report.data_versions.evaluation_policy
+  // Both published policies decide against the original S1 run even when another case is being inspected.
+  const decisionScope = policy === 'arena-tissue-v1' || policy === 'synthetic-tissue-v1'
+    ? report.scenario_results.find(s => s.scenario === 'S1') ?? originalPlan?.scenario_results.find(s => s.scenario === 'S1')
+    : undefined
   const evaluatedAt = new Date(report.evaluated_at)
   const evaluationStamp = Number.isNaN(evaluatedAt.valueOf()) ? report.evaluated_at : evaluationTime.format(evaluatedAt) + ' UTC'
   return <div className="campaign-verdict verdict-live">
@@ -116,13 +123,14 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
         <div><p className="verdict-label">Decision on your original plan</p>
           <h2 id="live-verdict-decision">{humanize(report.decision.status)}</h2>
           <p>{report.decision.explanation}</p></div>
-        <Gates plan={originalPlan} scope={originalScope}/>
+        {decisionScope && <Gates plan={originalPlan} scope={decisionScope}/>}
       </section>
       <ProfitRangeChart rows={chartRows} focusId={!plans.length && report.decision.status !== 'insufficient_evidence' ? 'original' : undefined}/>
     </div>
 
     <section aria-labelledby="live-compare-plans">
       <header className="verdict-comparison-heading"><h2 id="live-compare-plans">{plans.length ? 'Compare plans' : 'Scenario results'}</h2></header>
+      {strategies.map(({ id, detail }) => <StrategyDifference key={id} {...detail}/>)}
       {plans.length > 0 && <div className="verdict-plan-options" role="group" aria-label="Select a plan to inspect">
         {campaigns.length > 0 && <div className="verdict-campaign-options" data-paired={paired || undefined}>
           {campaigns.map((p, index)=>{
@@ -136,7 +144,7 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
                 <span>{offerText(p)}</span>
                 <b data-profit-sign={Math.sign(profit ?? 0) || undefined}>{profit == null ? 'Unavailable' : baht.format(profit)}</b>
                 <small>{scope ? 'Median incremental profit' : p.scenario_results[0] ? 'View results for ' + p.scenario_results[0].scenario : 'No evaluated scenarios'}</small>
-                {p.role === 'conservative' && profit != null && originalMedian != null &&
+                {originalPlan && pairedInputs(originalPlan, p) && profit != null && originalMedian != null &&
                   <span className="verdict-option-delta">{profitComparison(profit,originalMedian)}</span>}
               </button>
             </Fragment>
@@ -160,7 +168,6 @@ export function RunReport({ report, selection }: { report:Report; selection:RunS
 
     <section className="verdict-live-outcomes" aria-labelledby="live-verdict-scope">
       <h2 id="live-verdict-scope">{plan ? planLabels[plan.role] + ' · ' : ''}{scopeLabel}</h2>
-      {input?.changes.map(c=><p key={c.field}>{c.reason}</p>)}
       <dl className="verdict-probabilities" aria-label="Probabilities across paired seeds">
         <Probability title="Chance of meeting target" metric={findMetric(activeScope,'probability_hit_target')} reference={findMetric(comparison,'probability_hit_target')}/>
         <Probability title="Probability of loss" metric={findMetric(activeScope,'probability_loss')} reference={findMetric(comparison,'probability_loss')}/>
